@@ -3,15 +3,16 @@
 echo "[*] Actualizando paquetes de Termux..."
 pkg update -y && pkg upgrade -y
 
-echo "[*] Instalando Node.js, Git y Python..."
-pkg install nodejs git python -y
+echo "[*] Instalando Node.js, Git, Python y dependencias del sistema..."
+pkg install nodejs git python clang make libjpeg-turbo zlib -y
 
 echo "[*] Instalando dependencias de Node.js..."
 npm install
 
-echo "[*] Verificando e instalando librerías de Python necesarias..."
+echo "[*] Actualizando pip e instalando librerías de Python (Pillow, etc.)..."
 pip install --upgrade pip
+pip install Pillow
 
-echo "[+] ¡Instalación completada con éxito!"
-echo "[+] Ya puedes iniciar tu bot ejecutando: npm start"
+echo "[+] ¡Instalación completa! Todo listo para funcionar."
+echo "[+] Ejecuta 'npm start' para iniciar tu bot."
 
