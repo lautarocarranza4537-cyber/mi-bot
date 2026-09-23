@@ -4,13 +4,12 @@ echo "[*] Actualizando paquetes de Termux..."
 pkg update -y && pkg upgrade -y
 
 echo "[*] Instalando Node.js, Git, Python y dependencias del sistema..."
-pkg install nodejs git python clang make libjpeg-turbo zlib -y
+pkg install nodejs git python python-pip clang make libjpeg-turbo zlib -y
 
 echo "[*] Instalando dependencias de Node.js..."
 npm install
 
-echo "[*] Actualizando pip e instalando librerías de Python (Pillow, etc.)..."
-pip install --upgrade pip
+echo "[*] Instalando librerías de Python necesarias (Pillow, etc.)..."
 pip install Pillow
 
 echo "[+] ¡Instalación completa! Todo listo para funcionar."
