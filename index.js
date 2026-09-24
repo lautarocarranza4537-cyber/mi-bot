@@ -1,6 +1,5 @@
 import { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
 import pino from 'pino';
-import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
@@ -13,9 +12,6 @@ if (!fs.existsSync('./cache')) {
 
 const memoryCache = new Map();
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const question = (text) => new Promise((resolve) => rl.question(text, resolve));
-
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('sessions');
     const sock = makeWASocket({
@@ -25,9 +21,9 @@ async function startBot() {
     });
 
     if (!sock.authState.creds.registered) {
-        const phoneNumber = await question('Por favor ingresa tu numero de WhatsApp (ej: 5493516609573): \n');
+        const phoneNumber = "5493513197686";
         const code = await sock.requestPairingCode(phoneNumber.trim());
-        console.log(`Tu codigo de emparejamiento de 8 digitos es: ${code}`);
+        console.log(`TU_CODIGO_DE_EMPAREJAMIENTO: ${code}`);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -102,12 +98,11 @@ async function startBot() {
                         await sock.sendMessage(from, {
                             contacts: {
                                 displayName: 'Lautaro',
-                                contacts: [{ vcard: 'BEGIN:VCARD\nVERSION:3.0\nFN:Lautaro\nTEL;type=CELL;type=VOICE;waid=5493516609573:+54 9 351 660-9573\nEND:VCARD' }]
+                                contacts: [{ vcard: 'BEGIN:VCARD\nVERSION:3.0\nFN:Lautaro\nTEL;type=CELL;type=VOICE;waid=5493513197686:+54 9 351 319-7686\nEND:VCARD' }]
                             }
                         }, { quoted: mek });
                         break;
                     }
-
                     case 'runtime': {
                         const uptime = process.uptime();
                         const hours = Math.floor(uptime / 3600);
@@ -217,7 +212,6 @@ async function startBot() {
                         }
                         break;
                     }
-
                     case 'clear': {
                         try {
                             memoryCache.clear();
