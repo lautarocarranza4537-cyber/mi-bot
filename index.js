@@ -1,370 +1,342 @@
-import makeWASocket, { useMultiFileAuthState, downloadMediaMessage, makeCacheableSignalKeyStore } from 'baileys';
-import { Boom } from '@hapi/boom';
-import P from 'pino';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
+import pino from 'pino';
 import readline from 'readline';
 import fs from 'fs';
+import path from 'path';
 import { exec } from 'child_process';
-import { mostrarMenu, mostrarMenuJuegos, setBannerUrl } from './menu.js';
+import util from 'util';
+const execPromise = util.promisify(exec);
+
+if (!fs.existsSync('./cache')) {
+    fs.mkdirSync('./cache');
+}
+
+const memoryCache = new Map();
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-    
+    const { state, saveCreds } = await useMultiFileAuthState('sessions');
     const sock = makeWASocket({
-        logger: P({ level: 'silent' }),
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
-        }
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: false
     });
+
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = await question('Por favor ingresa tu numero de WhatsApp (ej: 5493516609573): \n');
+        const code = await sock.requestPairingCode(phoneNumber.trim());
+        console.log(`Tu codigo de emparejamiento de 8 digitos es: ${code}`);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
-
-        if (!sock.authState.creds.registered) {
-            const phoneNumber = await question('Ingresa tu numero con codigo de pais (ej: 549...):\n');
-            const code = await sock.requestPairingCode(phoneNumber.trim());
-            console.log(`Tu codigo de emparejamiento de 8 digitos es: ${code}`);
-        }
-
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== 401;
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('Conexion cerrada. Reconectando...', shouldReconnect);
-            if (shouldReconnect) {
-                startBot();
-            }
+            if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('¡Bot conectado exitosamente!');
-            rl.close();
+            console.log('¡Bot conectado exitosamente a WhatsApp!');
         }
     });
 
-    sock.ev.on('messages.upsert', async (chatUpdate) => {
-        try {
-            const m = chatUpdate.messages[0];
-            if (!m.message) return;
+    sock.ev.on('messages.upsert', (chatUpdate) => {
+        setImmediate(async () => {
+            try {
+                const mek = chatUpdate.messages[0];
+                if (!mek.message) return;
+                if (mek.key.fromMe) return;
 
-            const chat = m.key.remoteJid;
+                const body = mek.message?.conversation || mek.message?.extendedTextMessage?.text || '';
+                const isCmd = body.startsWith('.');
+                const command = isCmd ? body.slice(1).trim().split(' ')[0].toLowerCase() : '';
+                const q = body.trim().split(' ').slice(1).join(' ');
+                const from = mek.key.remoteJid;
 
-            const messageType = Object.keys(m.message)[0];
-            let body = '';
+                switch (command) {
+                    case 'menu':
+                    case 'help': {
+                        const menuText = `¡𝐇𝐨𝐥𝐚! 𝐒𝐨𝐲 𝐭𝐮 𝐚𝐬𝐢𝐬𝐭𝐞𝐧𝐭𝐞\n` +
+                                         `ᴀǫᴜɪ ᴛɪᴇɴᴇs ʟᴀ ʟɪsᴛᴀ ᴅᴇ ᴄᴏᴍᴀɴᴅᴏs\n` +
+                                         `╭┈ ↷\n` +
+                                         `│ ✐ 𝓓𝓮𝓿𝓮𝓵𝓸𝓹𝓮𝓭 𝓫𝔂 𝓛𝓪𝓾𝓽𝓪𝓻𝓸 ❤️\n` +
+                                         `╰─────────────────\n\n` +
+                                         `» ˚୨•(=^●ω●^=)• ⊹ \`Multimedia y Utilidades\` ⊹\n` +
+                                         `> ✐ Comandos principales del sistema.\n\n` +
+                                         `✧ \`.menu\` / \`.help\`\n> Muestra este panel de comandos.\n` +
+                                         `✧ \`.ping\`\n> Muestra la latencia del bot con estilo.\n` +
+                                         `✧ \`.owner\`\n> Muestra el contacto del creador.\n` +
+                                         `✧ \`.runtime\`\n> Muestra el tiempo activo del sistema.\n` +
+                                         `✧ \`.calc\` _[operación]_\n> Realiza una operación matemática.\n` +
+                                         `✧ \`.setbanner\` _{imagen}_\n> Actualiza el banner del sistema.\n` +
+                                         `✧ \`.revelar\` _{foto única}_\n> Revela fotos de ver una sola vez.\n` +
+                                         `✧ \`.waifu\`\n> Envía una waifu aleatoria.\n` +
+                                         `✧ \`.clear\`\n> Limpia la caché y memoria RAM.\n` +
+                                         `✧ \`.play\` _[búsqueda]_\n> Descarga música HD 🎵.\n` +
+                                         `✧ \`.ig\` / \`.tt\` _[enlace]_\n> Descarga videos de Instagram o TikTok.\n\n` +
+                                         `» ˚୨•(=^●ω●^=)• ⊹ \`Entretenimiento y Juegos\` ⊹\n` +
+                                         `> ✐ Mini juegos interactivos.\n\n` +
+                                         `✧ \`.menujuegos\`\n> Muestra el catálogo de juegos.\n` +
+                                         `✧ \`.8ball\` _[pregunta]_\n> Consulta a la bola mágica de respuestas.`;
 
-            if (messageType === 'conversation') {
-                body = m.message.conversation;
-            } else if (messageType === 'extendedTextMessage') {
-                body = m.message.extendedTextMessage.text;
-            } else if (messageType === 'imageMessage') {
-                body = m.message.imageMessage.caption || '';
-            } else if (messageType === 'videoMessage') {
-                body = m.message.videoMessage.caption || '';
-            }
-
-            if (m.key.fromMe) return;
-
-            const prefix = '.';
-            const isCommand = body.startsWith(prefix);
-            if (!isCommand) {
-                const quotedContext = m.message?.extendedTextMessage?.contextInfo;
-                if (quotedContext && quotedContext.stanzaId) {
-                    const textoMensaje = body.toLowerCase().trim();
-                    if (['piedra', 'papel', 'tijera', 'tijeras'].includes(textoMensaje)) {
-                        const opciones = ['piedra', 'papel', 'tijera'];
-                        const botEleccion = opciones[Math.floor(Math.random() * opciones.length)];
-                        let usuarioEleccion = textoMensaje === 'tijeras' ? 'tijera' : textoMensaje;
-                        
-                        let resultado = '';
-                        if (usuarioEleccion === botEleccion) {
-                            resultado = '¡Empate 🤝!';
-                        } else if (
-                            (usuarioEleccion === 'piedra' && botEleccion === 'tijera') ||
-                            (usuarioEleccion === 'papel' && botEleccion === 'piedra') ||
-                            (usuarioEleccion === 'tijera' && botEleccion === 'papel')
-                        ) {
-                            resultado = '¡Ganaste 🎉!';
+                        if (fs.existsSync('./banner.jpg')) {
+                            await sock.sendMessage(from, { image: fs.readFileSync('./banner.jpg'), caption: menuText }, { quoted: mek });
                         } else {
-                            resultado = '¡Perdiste 😢!';
+                            await sock.sendMessage(from, { text: menuText }, { quoted: mek });
                         }
-
-                        await sock.sendMessage(chat, { 
-                            text: `🎯 *RESULTADO PPT*\n\nTu elección: ${usuarioEleccion}\nMi elección: ${botEleccion}\n\n*${resultado}*` 
-                        }, { quoted: m });
+                        break;
                     }
-                }
-                return;
-            }
 
-            const command = body.slice(prefix.length).trim().split(' ')[0].toLowerCase();
-            const args = body.slice(prefix.length).trim().split(' ').slice(1);
+                    case 'ping': {
+                        const startPing = performance.now();
+                        const latency = (performance.now() - startPing).toFixed(2);
+                        const pingResponse = ` ✰ ¡Pong!\n> Tiempo ⴵ ${latency}ms`;
+                        await sock.sendMessage(from, { text: pingResponse }, { quoted: mek });
+                        break;
+                    }
 
-            if (command === 'menu' || command === 'help') {
-                await mostrarMenu(sock, chat, m);
-            }
+                    case 'owner': {
+                        await sock.sendMessage(from, {
+                            contacts: {
+                                displayName: 'Lautaro',
+                                contacts: [{ vcard: 'BEGIN:VCARD\nVERSION:3.0\nFN:Lautaro\nTEL;type=CELL;type=VOICE;waid=5493516609573:+54 9 351 660-9573\nEND:VCARD' }]
+                            }
+                        }, { quoted: mek });
+                        break;
+                    }
 
-            if (command === 'menujuegos' || command === 'juegos') {
-                await mostrarMenuJuegos(sock, chat, m);
-            }
+                    case 'runtime': {
+                        const uptime = process.uptime();
+                        const hours = Math.floor(uptime / 3600);
+                        const minutes = Math.floor((uptime % 3600) / 60);
+                        const seconds = Math.floor(uptime % 60);
+                        await sock.sendMessage(from, { text: `Tiempo activo del sistema: ${hours}h ${minutes}m ${seconds}s` }, { quoted: mek });
+                        break;
+                    }
 
-            if (command === 'ping') {
-                const timestampInicio = Date.now();
-                await sock.sendMessage(chat, { text: 'Calculando velocidad...' }, { quoted: m });
-                const timestampFin = Date.now();
-                const velocidadMs = timestampFin - timestampInicio;
+                    case 'calc': {
+                        if (!q) {
+                            await sock.sendMessage(from, { text: 'Ingresa una operacion. Ejemplo: .calc 50 * 2' }, { quoted: mek });
+                            break;
+                        }
+                        try {
+                            const resultado = eval(q.replace(/[^0-9+\-*/().]/g, ''));
+                            await sock.sendMessage(from, { text: `Resultado: ${resultado}` }, { quoted: mek });
+                        } catch (e) {
+                            await sock.sendMessage(from, { text: 'Operacion invalida.' }, { quoted: mek });
+                        }
+                        break;
+                    }
 
-                await sock.sendMessage(chat, { 
-                    text: `pong\nVelocidad: ${velocidadMs} ms` 
-                }, { quoted: m });
-            }
+                    case 'setbanner': {
+                        try {
+                            const quotedMessage = mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+                            const isQuotedImage = quotedMessage?.imageMessage;
+                            const directImage = mek.message?.imageMessage;
+                            
+                            if (isQuotedImage || directImage) {
+                                const targetMessage = isQuotedImage ? { message: quotedMessage, key: { remoteJid: from, id: mek.message.extendedTextMessage.contextInfo.stanzaId } } : mek;
+                                const buffer = await downloadMediaMessage(targetMessage, 'buffer', {});
+                                fs.writeFileSync('./banner.jpg', buffer);
+                                await sock.sendMessage(from, { text: 'Banner actualizado exitosamente.' }, { quoted: mek });
+                            } else {
+                                await sock.sendMessage(from, { text: 'Responde a una imagen con el comando .setbanner.' }, { quoted: mek });
+                            }
+                        } catch (err) {
+                            await sock.sendMessage(from, { text: 'Hubo un error al actualizar el banner.' }, { quoted: mek });
+                        }
+                        break;
+                    }
 
-            if (command === 'toimg') {
-                const quoted = m.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-                const isQuotedSticker = quoted && quoted.stickerMessage;
-                const isSticker = m.message?.stickerMessage;
+                    case 'revelar': {
+                        try {
+                            const quoted = mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+                            if (!quoted) {
+                                await sock.sendMessage(from, { text: 'Responde a una foto de ver una sola vez.' }, { quoted: mek });
+                                break;
+                            }
+                            let viewOnceMsg = quoted.viewOnceMessage?.message || quoted.viewOnceMessageV2?.message || quoted;
+                            let imageMsg = viewOnceMsg.imageMessage;
 
-                if (isQuotedSticker || isSticker) {
-                    try {
-                        let msgToDownload = m;
-                        if (quoted && quoted.stickerMessage) {
-                            msgToDownload = {
+                            if (!imageMsg) {
+                                await sock.sendMessage(from, { text: 'El mensaje no es una foto válida.' }, { quoted: mek });
+                                break;
+                            }
+
+                            const targetObject = {
                                 key: {
-                                    remoteJid: chat,
-                                    id: m.message.extendedTextMessage.contextInfo.stanzaId,
-                                    participant: m.message.extendedTextMessage.contextInfo.participant
+                                    remoteJid: from,
+                                    id: mek.message.extendedTextMessage.contextInfo.stanzaId,
+                                    participant: mek.message.extendedTextMessage.contextInfo.participant
                                 },
                                 message: quoted
                             };
+
+                            const buffer = await downloadMediaMessage(targetObject, 'buffer', {});
+                            await sock.sendMessage(from, { image: buffer, caption: '🔓 Imagen revelada con éxito.' }, { quoted: mek });
+                        } catch (e) {
+                            await sock.sendMessage(from, { text: '❌ No se pudo revelar la imagen.' }, { quoted: mek });
                         }
+                        break;
+                    }
 
-                        const stream = await downloadMediaMessage(msgToDownload, 'buffer');
+                    case 'waifu': {
+                        try {
+                            let apiURL = `https://nekos.best/api/v2/neko`;
+                            let response = await fetch(apiURL);
+                            let data = await response.json();
+                            let imageUrl = data?.results?.[0]?.url;
+
+                            if (!imageUrl) {
+                                let fallbackRes = await fetch(`https://api.waifu.pics/sfw/waifu`);
+                                let fallbackData = await fallbackRes.json();
+                                imageUrl = fallbackData?.url;
+                            }
+
+                            if (!imageUrl) {
+                                await sock.sendMessage(from, { text: `❌ No se pudo obtener ninguna imagen en este momento.` }, { quoted: mek });
+                                break;
+                            }
+
+                            let imgRes = await fetch(imageUrl);
+                            if (!imgRes.ok) throw new Error('Fallo al descargar la imagen');
+                            
+                            let arrayBuffer = await imgRes.arrayBuffer();
+                            let buffer = Buffer.from(arrayBuffer);
+
+                            await sock.sendMessage(from, { 
+                                image: buffer, 
+                                caption: `✨ Aquí tienes tu waifu aleatoria.` 
+                            }, { quoted: mek });
+
+                        } catch (e) {
+                            await sock.sendMessage(from, { text: '❌ Ocurrió un error al procesar la imagen.' }, { quoted: mek });
+                        }
+                        break;
+                    }
+
+                    case 'clear': {
+                        try {
+                            memoryCache.clear();
+                            const cacheDir = './cache';
+                            if (!fs.existsSync(cacheDir)) {
+                                await sock.sendMessage(from, { text: '📁 La caché ya está vacía.' }, { quoted: mek });
+                                break;
+                            }
+                            const files = fs.readdirSync(cacheDir);
+                            let count = 0;
+                            for (const file of files) {
+                                fs.unlinkSync(path.join(cacheDir, file));
+                                count++;
+                            }
+                            await sock.sendMessage(from, { text: `🧹 Caché y RAM limpiadas. Se eliminaron ${count} archivos.` }, { quoted: mek });
+                        } catch (e) {
+                            await sock.sendMessage(from, { text: '❌ Ocurrió un error al limpiar la caché.' }, { quoted: mek });
+                        }
+                        break;
+                    }
+
+                    case 'play': {
+                        if (!q) {
+                            await sock.sendMessage(from, { text: 'Ingresa el nombre de la musica. Ejemplo: .play bad bunny' }, { quoted: mek });
+                            break;
+                        }
                         
-                        await sock.sendMessage(chat, { 
-                            image: stream, 
-                            caption: 'Aqui tienes tu sticker convertido a imagen.' 
-                        }, { quoted: m });
-                    } catch (error) {
-                        console.error('Error detallado en toimg:', error);
-                        await sock.sendMessage(chat, { text: 'Hubo un error al convertir el sticker.' }, { quoted: m });
+                        try {
+                            let sanitizedQuery = q.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                            let cacheFile = path.join('./cache', `${sanitizedQuery}.mp3`);
+
+                            if (memoryCache.has(sanitizedQuery)) {
+                                await sock.sendMessage(from, { 
+                                    audio: memoryCache.get(sanitizedQuery), 
+                                    mimetype: 'audio/mp4', 
+                                    ptt: false,
+                                    caption: `🎶 ${q}` 
+                                }, { quoted: mek });
+                                break;
+                            }
+
+                            if (fs.existsSync(cacheFile)) {
+                                const fileBuffer = fs.readFileSync(cacheFile);
+                                memoryCache.set(sanitizedQuery, fileBuffer);
+                                await sock.sendMessage(from, { 
+                                    audio: fileBuffer, 
+                                    mimetype: 'audio/mp4', 
+                                    ptt: false,
+                                    caption: `🎶 ${q}` 
+                                }, { quoted: mek });
+                                break;
+                            }
+
+                            await sock.sendMessage(from, { text: '🎧 Buscando y procesando audio en alta calidad...' }, { quoted: mek });
+
+                            const rawFile = `raw_${Date.now()}.webm`;
+                            
+                            await execPromise(`yt-dlp -f bestaudio --no-playlist --no-check-certificates -o "${rawFile}" "ytsearch1:${q}"`);
+                            await execPromise(`ffmpeg -i "${rawFile}" -vn -ar 44100 -ac 2 -b:a 320k "${cacheFile}"`);
+
+                            const finalBuffer = fs.readFileSync(cacheFile);
+                            memoryCache.set(sanitizedQuery, finalBuffer);
+
+                            await sock.sendMessage(from, { 
+                                audio: finalBuffer, 
+                                mimetype: 'audio/mp4', 
+                                ptt: false,
+                                caption: `🎶 ${q}` 
+                            }, { quoted: mek });
+
+                            if (fs.existsSync(rawFile)) fs.unlinkSync(rawFile);
+
+                        } catch (e) {
+                            await sock.sendMessage(from, { text: '❌ Ocurrió un error al procesar la música.' }, { quoted: mek });
+                        }
+                        break;
                     }
-                } else {
-                    await sock.sendMessage(chat, { text: 'Responde a un sticker con el comando .toimg para convertirlo.' }, { quoted: m });
-                }
-            }
-            if (command === 'setbanner') {
-                const quotedMessage = m.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-                
-                if (quotedMessage && quotedMessage.imageMessage) {
-                    try {
-                        const builtinMsg = {
-                            key: {
-                                remoteJid: chat,
-                                id: m.message.extendedTextMessage.contextInfo.stanzaId,
-                                participant: m.message.extendedTextMessage.contextInfo.participant
-                            },
-                            message: quotedMessage
-                        };
 
-                        const stream = await downloadMediaMessage(builtinMsg, 'buffer');
-                        const bannerPath = './banner.jpg';
-                        fs.writeFileSync(bannerPath, stream);
-                        setBannerUrl(bannerPath);
-
-                        await sock.sendMessage(chat, { text: '¡Banner del bot actualizado exitosamente!' }, { quoted: m });
-                    } catch (error) {
-                        console.error(error);
-                        await sock.sendMessage(chat, { text: 'Hubo un error al establecer el banner.' }, { quoted: m });
+                    case 'tt':
+                    case 'ig': {
+                        if (!q) {
+                            await sock.sendMessage(from, { text: 'Ingresa un enlace valido.' }, { quoted: mek });
+                            break;
+                        }
+                        await sock.sendMessage(from, { text: '⏳ Procesando video...' }, { quoted: mek });
+                        try {
+                            const fileName = `video_${Date.now()}.mp4`;
+                            await execPromise(`yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${fileName}" "${q}"`);
+                            await sock.sendMessage(from, { video: fs.readFileSync(fileName), mimetype: 'video/mp4', caption: '✨ Aquí tienes tu video.' }, { quoted: mek });
+                            fs.unlinkSync(fileName);
+                        } catch (e) {
+                            await sock.sendMessage(from, { text: '❌ No se pudo descargar el video.' }, { quoted: mek });
+                        }
+                        break;
                     }
-                } else {
-                    await sock.sendMessage(chat, { text: 'Responde a una imagen con el comando .setbanner para cambiar el banner del menu.' }, { quoted: m });
-                }
-            }
 
-            if (command === '8ball') {
-                const pregunta = args.join(' ');
-                if (!pregunta) {
-                    await sock.sendMessage(chat, { text: 'Escribe una pregunta. Ejemplo: .8ball aprobare el año?' }, { quoted: m });
-                    return;
-                }
-                const respuestas = [
-                    'Si, definitivamente.', 'Es cierto.', 'Sin duda.',
-                    'No cuentes con ello.', 'Mi respuesta es no.', 'Mis fuentes dicen que no.',
-                    'Pregunta de nuevo mas tarde.', 'No se puede predecir ahora.'
-                ];
-                const respuestaAleatoria = respuestas[Math.floor(Math.random() * respuestas.length)];
-                await sock.sendMessage(chat, { text: `🔮 *8Ball*\nPregunta: ${pregunta}\nRespuesta: ${respuestaAleatoria}` }, { quoted: m });
-            }
-
-            if (command === 'ppt') {
-                await sock.sendMessage(chat, { text: '🎮 *Juego de Piedra, Papel o Tijera.*\n\nResponde a este mensaje escribiendo tu jugada: `piedra`, `papel` o `tijera`.' }, { quoted: m });
-            }
-
-            if (command === 'dado') {
-                const numeroDado = Math.floor(Math.random() * 6) + 1;
-                await sock.sendMessage(chat, { text: `🎲 Lanzaste el dado y salió el número: *${numeroDado}*` }, { quoted: m });
-            }
-
-            if (command === 'caracruz') {
-                const resultado = Math.random() < 0.5 ? '🪙 Cara' : '🪙 Cruz';
-                await sock.sendMessage(chat, { text: `La moneda giró y cayó en: *${resultado}*` }, { quoted: m });
-            }
-
-            if (command === 'adivina') {
-                const numeroSecreto = Math.floor(Math.random() * 10) + 1;
-                const userChoice = parseInt(args[0]);
-                if (!userChoice || isNaN(userChoice)) {
-                    await sock.sendMessage(chat, { text: 'Elige un número del 1 al 10. Ejemplo: `.adivina 5`' }, { quoted: m });
-                    return;
-                }
-                if (userChoice === numeroSecreto) {
-                    await sock.sendMessage(chat, { text: `🎉 ¡Felicidades! Adivinaste el número secreto (*${numeroSecreto}*).` }, { quoted: m });
-                } else {
-                    await sock.sendMessage(chat, { text: `❌ Fallaste. El número secreto era *${numeroSecreto}*. ¡Inténtalo de nuevo!` }, { quoted: m });
-                }
-            }
-
-            if (command === 'chiste') {
-                const chistes = [
-                    '— Papá, papá, ¿qué se siente tener un hijo tan guapo?\n— No sé hijo, pregúntale a tu abuelo.',
-                    '— ¿Qué hace una abeja en el gimnasio?\n— ¡Zumba!',
-                    '— ¡Camarero, hay una mosca en mi sopa!\n— No se preocupe, señor, nadando no se ahoga.',
-                    '— ¿Por qué los pájaros vuelan al sur en invierno?\n— Porque caminando tardan muchísimo.',
-                    '— ¡Hola, guapo! ¿Qué hora es?\n— La hora de enamorarte de mí.'
-                ];
-                const chisteAleatorio = chistes[Math.floor(Math.random() * chistes.length)];
-                await sock.sendMessage(chat, { text: `😂 *Chiste:* \n\n${chisteAleatorio}` }, { quoted: m });
-            }
-
-            if (command === 'rollwaifu') {
-                const waifus = ['Rem (Re:Zero)', 'Nezuko (Kimetsu no Yaiba)', 'Gojo Satoru (Jujutsu Kaisen)', 'Naruto Uzumaki', 'Megumin (KonoSuba)', 'L (Death Note)'];
-                const waifuObtenida = waifus[Math.floor(Math.random() * waifus.length)];
-                const rarezas = ['✨ Común', '🌟 Rara', '🔥 Épica', '💎 ¡Legendaria!'];
-                const rarezaObtenida = rarezas[Math.floor(Math.random() * rarezas.length)];
-                await sock.sendMessage(chat, { text: `✨ *Gacha Waifu/Husbando*\n\n¡Te ha tocado: *${waifuObtenida}*!\nRareza: ${rarezaObtenida}` }, { quoted: m });
-            }
-
-            if (command === 'hack') {
-                let objetivo = args.join(' ');
-                const mentionedJid = m.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-                
-                if (mentionedJid && mentionedJid.length > 0) {
-                    objetivo = `@${mentionedJid[0].split('@')[0]}`;
-                } else if (!objetivo) {
-                    objetivo = 'Alguien';
-                }
-
-                const mentions = mentionedJid ? mentionedJid : [];
-
-                await sock.sendMessage(chat, { 
-                    text: `💻 Hackeando a ${objetivo}...\n█ 20% - Robando datos de WhatsApp...\n████ 50% - Descargando galería secreta...\n████████ 100% - ¡Hackeo completado con éxito! (Es broma tranqui 😂)`,
-                    mentions: mentions
-                }, { quoted: m });
-            }
-
-            if (command === 'piropo') {
-                const piropos = [
-                    '¿Eres Google? Porque tienes todo lo que estoy buscando.',
-                    'Si el amor fuera un delito, tú estarías cadena perpetua por robarme el corazón.',
-                    '¿Crees en el amor a primera vista o tengo que volver a pasar frente a ti?',
-                    'Debes ser un ladrón, porque te robaron una sonrisa.'
-                ];
-                const piropoAleatorio = piropos[Math.floor(Math.random() * piropos.length)];
-                await sock.sendMessage(chat, { text: `💖 *Piropo:* \n\n${piropoAleatorio}` }, { quoted: m });
-            }
-
-            if (command === 'ruleta') {
-                const sobrevive = Math.random() > 0.33;
-                if (sobrevive) {
-                    await sock.sendMessage(chat, { text: '🔫 *Ruleta Rusa*\n\nApuntaste, apretaste el gatillo... ¡*Click*! Sobreviviste esta ronda. 😮‍💨' }, { quoted: m });
-                } else {
-                    await sock.sendMessage(chat, { text: '🔫 *Ruleta Rusa*\n\nApuntaste, apretaste el gatillo... ¡*BAM*! 💥 Te diste un tiro. Perdiste ⚰️.' }, { quoted: m });
-                }
-            }
-
-            if (command === 'play') {
-                const query = args.join(' ');
-                if (!query) {
-                    await sock.sendMessage(chat, { text: 'Escribe el nombre o link de la cancion. Ejemplo: .play despacito' }, { quoted: m });
-                    return;
-                }
-                await sock.sendMessage(chat, { text: `🔍 Buscando y descargando audio para: "${query}"...` }, { quoted: m });
-
-                const outputAudio = `./downloads_audio_${Date.now()}.mp3`;
-                const searchCmd = `yt-dlp -x --audio-format mp3 -o "${outputAudio}" "ytsearch1:${query}"`;
-
-                exec(searchCmd, async (error) => {
-                    if (error) {
-                        await sock.sendMessage(chat, { text: '❌ No se pudo descargar el audio.' }, { quoted: m });
-                        return;
+                    case 'menujuegos': {
+                        await sock.sendMessage(from, { text: 'MENU DE JUEGOS\n| .8ball [pregunta]\n| .dado\n| .coin' }, { quoted: mek });
+                        break;
                     }
-                    try {
-                        const buffer = fs.readFileSync(outputAudio);
-                        await sock.sendMessage(chat, { audio: buffer, mimetype: 'audio/mpeg', ptt: false }, { quoted: m });
-                        fs.unlinkSync(outputAudio);
-                    } catch (err) {
-                        await sock.sendMessage(chat, { text: '❌ Error al enviar el archivo de audio.' }, { quoted: m });
-                    }
-                });
-            }
 
-            if (command === 'sc') {
-                const query = args.join(' ');
-                if (!query) {
-                    await sock.sendMessage(chat, { text: 'Escribe el nombre o link de SoundCloud. Ejemplo: .sc remix' }, { quoted: m });
-                    return;
+                    case '8ball': {
+                        if (!q) {
+                            await sock.sendMessage(from, { text: 'Haz una pregunta.' }, { quoted: mek });
+                            break;
+                        }
+                        const resp = ['Si.', 'No.', 'Tal vez.', 'Definitivamente no.', 'Por supuesto.'];
+                        await sock.sendMessage(from, { text: resp[Math.floor(Math.random() * resp.length)] }, { quoted: mek });
+                        break;
+                    }
+
+                    default:
+                        break;
                 }
-                await sock.sendMessage(chat, { text: `🔍 Buscando en SoundCloud: "${query}"...` }, { quoted: m });
-
-                const outputSc = `./downloads_sc_${Date.now()}.mp3`;
-                const scCmd = `yt-dlp -x --audio-format mp3 -o "${outputSc}" "scsearch1:${query}"`;
-
-                exec(scCmd, async (error) => {
-                    if (error) {
-                        await sock.sendMessage(chat, { text: '❌ No se pudo descargar desde SoundCloud.' }, { quoted: m });
-                        return;
-                    }
-                    try {
-                        const buffer = fs.readFileSync(outputSc);
-                        await sock.sendMessage(chat, { audio: buffer, mimetype: 'audio/mpeg', ptt: false }, { quoted: m });
-                        fs.unlinkSync(outputSc);
-                    } catch (err) {
-                        await sock.sendMessage(chat, { text: '❌ Error al enviar el audio de SoundCloud.' }, { quoted: m });
-                    }
-                });
+            } catch (err) {
+                console.error(err);
             }
-
-            if (command === 'ig' || command === 'tt') {
-                const link = args[0];
-                if (!link) {
-                    await sock.sendMessage(chat, { text: `Ingresa un enlace válido. Ejemplo: .${command} https://...` }, { quoted: m });
-                    return;
-                }
-                await sock.sendMessage(chat, { text: `📥 Descargando video de ${command.toUpperCase()}...` }, { quoted: m });
-
-                const outputVideo = `./downloads_vid_${Date.now()}.mp4`;
-                const dlCmd = `yt-dlp -o "${outputVideo}" "${link}"`;
-
-                exec(dlCmd, async (error) => {
-                    if (error) {
-                        await sock.sendMessage(chat, { text: '❌ No se pudo descargar el video. Verifica que el enlace sea correcto.' }, { quoted: m });
-                        return;
-                    }
-                    try {
-                        const buffer = fs.readFileSync(outputVideo);
-                        await sock.sendMessage(chat, { video: buffer, caption: 'Aquí tienes tu video descargado.' }, { quoted: m });
-                        fs.unlinkSync(outputVideo);
-                    } catch (err) {
-                        await sock.sendMessage(chat, { text: '❌ Error al enviar el video.' }, { quoted: m });
-                    }
-                });
-            }
-
-        } catch (error) {
-            console.error('Error al procesar el mensaje:', error);
-        }
+        });
     });
 }
 
 startBot();
-
