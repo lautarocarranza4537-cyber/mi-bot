@@ -3,7 +3,6 @@ const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const express = require('express');
 
-// Servidor Express básico para Render (evita que el servicio se duerma por inactividad)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -28,7 +27,6 @@ async function startBot() {
         browser: [ "Ubuntu", "Chrome", "20.0.04" ]
     });
 
-    // Solicitar código de emparejamiento si no está conectado
     if (!sock.authState.creds.registered) {
         const phoneNumber = "5493516609573";
         setTimeout(async () => {
@@ -59,7 +57,6 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Manejador de mensajes para el comando ,ping
     sock.ev.on('messages.upsert', async ({ messages }) => {
         try {
             const mek = messages[0];
@@ -71,7 +68,6 @@ async function startBot() {
             
             const from = mek.key.remoteJid;
             
-            // Comando ,ping (responde a cualquier usuario y al número vinculado)
             if (body && body.trim() === ',ping') {
                 const start = Date.now();
                 const sentMsg = await sock.sendMessage(from, { text: 'Pong! 🏓' }, { quoted: mek });
@@ -89,4 +85,3 @@ async function startBot() {
 }
 
 startBot();
-
