@@ -27,41 +27,44 @@ async function startBot() {
         browser: [ "Ubuntu", "Chrome", "20.0.04" ]
     });
 
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        
+        if (connection === 'open') {
+            console.log('¡Conectado exitosamente a WhatsApp!');
+        } else if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexión cerrada. Reconectando:', shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(startBot, 5000);
+            }
+        }
+    });
+
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "5493516609573";
         setTimeout(async () => {
             try {
+                const phoneNumber = "5493516609573";
                 let code = await sock.requestPairingCode(phoneNumber);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n========================================`);
                 console.log(`TU CÓDIGO DE EMPAREJAMIENTO ES: ${code}`);
                 console.log(`========================================\n`);
             } catch (error) {
-                console.error("Error al solicitar el código de emparejamiento:", error);
+                console.error("Error al solicitar código, reintentando...", error);
             }
-        }, 3000);
+        }, 7000);
     }
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Conexión cerrada. Reconectando:', shouldReconnect);
-            if (shouldReconnect) {
-                startBot();
-            }
-        } else if (connection === 'open') {
-            console.log('¡Conectado exitosamente a WhatsApp!');
-        }
-    });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
+    sock.ev.on('messages.upsert', async (chatUpdate) => {
         try {
-            const mek = messages[0];
+            const mek = chatUpdate.messages[0];
             if (!mek.message) return;
-            
+            if (mek.key.fromMe) return;
+            if (chatUpdate.type !== 'notify') return;
+
             const messageType = Object.keys(mek.message)[0];
             const body = messageType === 'conversation' ? mek.message.conversation :
                          messageType === 'extendedTextMessage' ? mek.message.extendedTextMessage.text : '';
