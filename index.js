@@ -1,81 +1,92 @@
-import pino from 'pino';
-import pkg from '@whiskeysockets/baileys';
-import express from 'express';
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const P = require('pino');
+const express = require('express');
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = pkg;
-
+// Servidor Express básico para Render (evita que el servicio se duerma por inactividad)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    res.send('¡Bot de WhatsApp Business activo en Render! 🚀');
+    res.send('¡El bot de WhatsApp está activo!');
 });
 
 app.listen(PORT, () => {
-    console.log(`[WEB] Servidor HTTP escuchando en el puerto ${PORT}`);
+    console.log(`Servidor web corriendo en el puerto ${PORT}`);
 });
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
     const sock = makeWASocket({
-        auth: state,
-        logger: pino({ level: 'silent' }),
+        logger: P({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.ubuntu('Chrome')
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
+        },
+        browser: [ "Ubuntu", "Chrome", "20.0.04" ]
+    });
+
+    // Solicitar código de emparejamiento si no está conectado
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "5493516609573";
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(phoneNumber);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(`\n========================================`);
+                console.log(`TU CÓDIGO DE EMPAREJAMIENTO ES: ${code}`);
+                console.log(`========================================\n`);
+            } catch (error) {
+                console.error("Error al solicitar el código de emparejamiento:", error);
+            }
+        }, 3000);
+    }
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Conexión cerrada. Reconectando:', shouldReconnect);
+            if (shouldReconnect) {
+                startBot();
+            }
+        } else if (connection === 'open') {
+            console.log('¡Conectado exitosamente a WhatsApp!');
+        }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    let pairingRequested = false;
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
-
-        if (connection === 'open') {
-            console.log('\n[CONEXIÓN] ¡Bot de WhatsApp Business conectado exitosamente!\n');
-        }
-
-        if (!sock.authState.creds.registered && !pairingRequested) {
-            pairingRequested = true;
-            setTimeout(async () => {
-                try {
-                    const phoneNumber = '5493516609573';
-                    console.log(`\n[PAIRING] Solicitando código de 8 dígitos para: ${phoneNumber}...`);
-                    const code = await sock.requestPairingCode(phoneNumber);
-                    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-                    console.log(`\n==================================================`);
-                    console.log(`>>> CÓDIGO DE VINCULACIÓN: ${formattedCode} <<<`);
-                    console.log(`==================================================\n`);
-                } catch (err) {
-                    console.error('[PAIRING ERROR] No se pudo solicitar el código:', err.message);
-                    pairingRequested = false;
-                }
-            }, 6000);
-        }
-
-        if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`[CONEXIÓN] Cerrada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
-            if (shouldReconnect) {
-                setTimeout(() => startBot(), 4000);
+    // Manejador de mensajes para el comando ,ping
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        try {
+            const mek = messages[0];
+            if (!mek.message) return;
+            
+            const messageType = Object.keys(mek.message)[0];
+            const body = messageType === 'conversation' ? mek.message.conversation :
+                         messageType === 'extendedTextMessage' ? mek.message.extendedTextMessage.text : '';
+            
+            const from = mek.key.remoteJid;
+            
+            // Comando ,ping (responde a cualquier usuario y al número vinculado)
+            if (body && body.trim() === ',ping') {
+                const start = Date.now();
+                const sentMsg = await sock.sendMessage(from, { text: 'Pong! 🏓' }, { quoted: mek });
+                const latency = Date.now() - start;
+                
+                await sock.sendMessage(from, { 
+                    text: `Velocidad de respuesta: *${latency}ms*`, 
+                    edit: sentMsg.key 
+                });
             }
-        }
-    });
-
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
-        const msg = messages[0];
-        if (!msg.message) return;
-
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-        const remoteJid = msg.key.remoteJid;
-
-        if (text === ',ping') {
-            await sock.sendMessage(remoteJid, { text: '¡Pong! 🏓' }, { quoted: msg });
+        } catch (err) {
+            console.error("Error procesando mensaje:", err);
         }
     });
 }
 
 startBot();
+
