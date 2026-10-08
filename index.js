@@ -22,16 +22,36 @@ async function startBot() {
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.ubuntu('Chrome')
+        browser: Browsers.macOS('Chrome')
     });
 
     sock.ev.on('creds.update', saveCreds);
+
+    let pairingRequested = false;
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
-            console.log('\n[CONEXIÓN] ¡Bot conectado exitosamente en Render con la sesión guardada!\n');
+            console.log('\n[CONEXIÓN] ¡Bot conectado exitosamente en Render y listo para responder ,ping!\n');
+        }
+
+        if (!sock.authState.creds.registered && !pairingRequested) {
+            pairingRequested = true;
+            setTimeout(async () => {
+                try {
+                    const phoneNumber = '5493516609573';
+                    console.log(`\n[PAIRING] Solicitando código de 8 dígitos para: ${phoneNumber}...`);
+                    const code = await sock.requestPairingCode(phoneNumber);
+                    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                    console.log(`\n==================================================`);
+                    console.log(`>>> CÓDIGO DE VINCULACIÓN: ${formattedCode} <<<`);
+                    console.log(`==================================================\n`);
+                } catch (err) {
+                    console.error('[PAIRING ERROR] No se pudo solicitar el código:', err.message);
+                    pairingRequested = false;
+                }
+            }, 6000);
         }
 
         if (connection === 'close') {
