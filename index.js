@@ -22,7 +22,7 @@ async function startBot() {
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.macOS('Chrome')
+        browser: Browsers.ubuntu('Chrome')
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -36,10 +36,9 @@ async function startBot() {
             console.log('\n[CONEXIÓN] ¡Bot conectado exitosamente en la nube y listo para responder ,ping!\n');
         }
 
-        if (!sock.authState.creds.registered && !pairingRequested && (connection === 'connecting' || connection === undefined)) {
+        if (!sock.authState.creds.registered && !pairingRequested) {
+            pairingRequested = true;
             setTimeout(async () => {
-                if (pairingRequested) return;
-                pairingRequested = true;
                 try {
                     const phoneNumber = '5493516609573';
                     console.log(`\n[PAIRING] Solicitando código de 8 dígitos para: ${phoneNumber}...`);
@@ -52,7 +51,7 @@ async function startBot() {
                     console.error('[PAIRING ERROR] No se pudo solicitar el código:', err.message);
                     pairingRequested = false;
                 }
-            }, 3000);
+            }, 5000);
         }
 
         if (connection === 'close') {
@@ -60,7 +59,7 @@ async function startBot() {
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`[CONEXIÓN] Cerrada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
             if (shouldReconnect) {
-                setTimeout(() => startBot(), 3000);
+                setTimeout(() => startBot(), 4000);
             }
         }
     });
