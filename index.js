@@ -1,6 +1,8 @@
 import pino from 'pino';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers } from '@whiskeysockets/baileys';
+import pkg from '@whiskeysockets/baileys';
 import express from 'express';
+
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = pkg;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
