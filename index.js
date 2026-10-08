@@ -8,7 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    res.send('¡El bot de WhatsApp está activo en Render! 🚀');
+    res.send('¡Bot de WhatsApp Business activo en Render! 🚀');
 });
 
 app.listen(PORT, () => {
@@ -22,7 +22,7 @@ async function startBot() {
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        browser: Browsers.macOS('Chrome')
+        browser: Browsers.ubuntu('Chrome')
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -33,7 +33,7 @@ async function startBot() {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
-            console.log('\n[CONEXIÓN] ¡Bot conectado exitosamente en Render y listo para responder ,ping!\n');
+            console.log('\n[CONEXIÓN] ¡Bot de WhatsApp Business conectado exitosamente!\n');
         }
 
         if (!sock.authState.creds.registered && !pairingRequested) {
