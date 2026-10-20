@@ -1,0 +1,9 @@
+node_modules/
+auth_info_baileys/
+*.tmp
+audio_*
+img_*
+sc_*
+tt_*
+ig_*
+fb_*

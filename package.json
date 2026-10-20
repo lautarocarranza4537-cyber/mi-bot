@@ -1,0 +1,20 @@
+{
+  "name": "mi-bot",
+  "version": "1.0.0",
+  "description": "Bot WhatsApp TypeScript",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx index.ts"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "@hapi/boom": "^10.0.1",
+    "pino": "^9.0.0",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0"
+  }
+}
