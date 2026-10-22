@@ -124,7 +124,7 @@ async function startBot() {
             const command = args.shift().toLowerCase();
             const q = args.join(' ');
 
-            // === COMANDO OWNER / CREADOR ===
+            // === COMANDO OWNER ===
             if (command === 'owner' || command === 'creador' || command === 'contacto') {
                 await react('🫰');
                 try {
@@ -150,38 +150,34 @@ async function startBot() {
                 return;
             }
 
-            // === MENU DE COMANDOS (MOSTRANDO MANTENIMIENTO) ===
+            // === MENU ===
             if (command === 'menu' || command === 'help') {
                 await react('🫰');
                 const menuText = `*MENÚ DE COMANDOS*
 *Prefijos permitidos:* \`.\` \`,\` \`+\`
 
 *UTILIDADES Y SISTEMA*
-• \`.ping\` ➔ *Muestra la latencia en tiempo real.*
-• \`.owner\` ➔ *Muestra la tarjeta de contacto de Jonathan | Owner.*
-• \`.setbanner\` ➔ *Guarda foto, GIF o video citado como banner principal.*
+• \`.ping\` ➔ *Latencia del servidor.*
+• \`.owner\` ➔ *Contacto del Owner.*
+• \`.ia\` ➔ *Preguntarle algo a la Inteligencia Artificial.*
 
 *MULTIMEDIA Y STICKERS*
-• \`.s\` o \`.sticker\` ➔ *Convierte foto o video corto en sticker.*
-• \`.toimg\` ➔ *Convierte un sticker en formato de imagen.*
-• \`.revelar\` ➔ *Muestra el contenido de fotos o videos de una sola vez.*
+• \`.s\` ➔ *Crear sticker.*
+• \`.toimg\` ➔ *Convertir sticker a imagen.*
+• \`.revelar\` ➔ *Ver mensajes de una sola vez.*
 
-*MODO DESCARGAS*
-• *Mantenimiento temporal de descargas de media.*`;
+*DESCARGAS CON API*
+• \`.play\` ➔ *Descargar audio de YouTube.*
+• \`.video\` ➔ *Descargar video de YouTube.*
+• \`.tt\` ➔ *Descargar video de TikTok.*
+• \`.ig\` ➔ *Descargar video/foto de Instagram.*`;
 
                 const currentBanner = await getStoredBanner();
                 try {
                     if (currentBanner.type === 'video') {
-                        await sock.sendMessage(sender, {
-                            video: { url: currentBanner.url },
-                            caption: menuText,
-                            gifPlayback: true
-                        }, { quoted: m });
+                        await sock.sendMessage(sender, { video: { url: currentBanner.url }, caption: menuText, gifPlayback: true }, { quoted: m });
                     } else {
-                        await sock.sendMessage(sender, {
-                            image: { url: currentBanner.url },
-                            caption: menuText
-                        }, { quoted: m });
+                        await sock.sendMessage(sender, { image: { url: currentBanner.url }, caption: menuText }, { quoted: m });
                     }
                 } catch {
                     await reply(menuText);
@@ -199,40 +195,7 @@ async function startBot() {
                 return;
             }
 
-            // === SETBANNER ===
-            if (command === 'setbanner') {
-                await react('🫰');
-                try {
-                    const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
-                    const targetMessage = quotedMsg ? { message: quotedMsg, key: { remoteJid: sender } } : m;
-                    const isImage = targetMessage.message?.imageMessage;
-                    const isVideo = targetMessage.message?.videoMessage;
-
-                    if (!isImage && !isVideo) {
-                        return reply('Responde a una imagen, GIF o video corto con .setbanner.');
-                    }
-
-                    const mime = (isImage || isVideo).mimetype || '';
-                    const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
-                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
-                    });
-
-                    const ext = mime.includes('video') ? 'mp4' : 'jpg';
-                    const type = mime.includes('video') ? 'video' : 'image';
-                    const bannerPath = path.join(process.cwd(), `banner_${Date.now()}.${ext}`);
-
-                    await writeFile(bannerPath, buffer);
-                    await saveStoredBanner(bannerPath, type);
-
-                    await reply(`Banner actualizado correctamente (${type === 'video' ? 'Video/GIF' : 'Imagen'}).`);
-                } catch (err) {
-                    console.error('Error en setbanner:', err);
-                    await reply('Error al actualizar el banner.');
-                }
-                return;
-            }
-
-            // === STICKER (.s) ===
+            // === STICKER ===
             if (command === 's' || command === 'sticker') {
                 await react('🫰');
                 try {
@@ -264,126 +227,75 @@ async function startBot() {
                 return;
             }
 
-            // === TOIMG ===
-            if (command === 'toimg') {
-                await react('🫰');
-                try {
-                    const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
-                    if (!quotedMsg || !quotedMsg.stickerMessage) {
-                        return reply('Responde a un sticker con .toimg para pasarlo a imagen.');
-                    }
-
-                    await reply('Convirtiendo sticker a imagen...');
-                    const targetMessage = { message: quotedMsg, key: { remoteJid: sender } };
-                    const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
-                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
-                    });
-
-                    const tempPath = path.join(process.cwd(), `img_${Date.now()}.png`);
-                    await writeFile(tempPath, buffer);
-
-                    await sock.sendMessage(sender, { image: { url: tempPath }, caption: 'Aqui tienes tu imagen' }, { quoted: m });
-                    await unlink(tempPath).catch(() => {});
-                } catch (err) {
-                    console.error('Error en .toimg:', err);
-                    await reply('Error al convertir el sticker a imagen.');
-                }
-                return;
-            }
-
-            // === COMANDO PLAY USANDO LA API DE TU AMIGO ===
+            // === DESCARGA YOUTUBE AUDIO (.play) ===
             if (command === 'play') {
                 await react('🫰');
-                if (!q) return reply('Escribe el nombre o enlace de lo que deseas buscar en YouTube.\nEjemplo: `.play lofi hip hop`');
-
+                if (!q) return reply('Escribe el nombre o link de YouTube.');
                 try {
                     let videoUrl = q;
-
-                    // Si no es un link directo, buscamos usando la API de búsqueda
                     if (!q.startsWith('http://') && !q.startsWith('https://')) {
                         await reply('🔍 Buscando en YouTube...');
                         const searchRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
                         const searchData = await searchRes.json();
-                        
-                        // Adaptamos según el formato que devuelva la API de búsqueda
                         videoUrl = searchData.url || searchData.results?.[0]?.url || searchData[0]?.url;
-                        if (!videoUrl) return reply('❌ No se encontraron resultados para tu búsqueda.');
+                        if (!videoUrl) return reply('❌ No se encontraron resultados.');
                     }
 
-                    await reply('📥 Procesando audio con la API...');
-
-                    // Solicitamos a la API el link de descarga en audio
+                    await reply('📥 Procesando audio...');
                     const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            url: videoUrl,
-                            type: 'audio', // Cambiar a 'video' si quieres descargar video
-                            upload: false
-                        })
+                        body: JSON.stringify({ url: videoUrl, type: 'audio', upload: false })
                     });
-
                     const data = await apiRes.json();
                     const downloadUrl = data.downloadUrl || data.url || data.result;
 
-                    if (!downloadUrl) {
-                        return reply(`❌ Error: La API no devolvió un enlace válido.\nRespuesta: ${JSON.stringify(data)}`);
-                    }
+                    if (!downloadUrl) return reply('❌ Error al obtener el audio desde la API.');
 
-                    await sock.sendMessage(sender, { 
-                        audio: { url: downloadUrl }, 
-                        mimetype: 'audio/mp4', 
-                        ptt: false 
-                    }, { quoted: m });
-
+                    await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
                 } catch (err) {
-                    console.error('Error en .play con API:', err);
-                    await reply(`❌ Error al conectar con la API: ${err.message}`);
-                }
-                return;
-            }
-
-            // === COMANDO VIDEO USANDO LA API ===
-            if (command === 'video') {
-                await react('🫰');
-                if (!q) return reply('Escribe el enlace de YouTube del video.\nEjemplo: `.video https://www.youtube.com/watch?v=...`');
-
-                try {
-                    await reply('📥 Procesando video con la API...');
-
-                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            url: q,
-                            type: 'video',
-                            upload: false
-                        })
-                    });
-
-                    const data = await apiRes.json();
-                    const downloadUrl = data.downloadUrl || data.url || data.result;
-
-                    if (!downloadUrl) {
-                        return reply(`❌ Error de la API de video: ${JSON.stringify(data)}`);
-                    }
-
-                    await sock.sendMessage(sender, { 
-                        video: { url: downloadUrl }, 
-                        caption: 'Aquí tienes tu video' 
-                    }, { quoted: m });
-
-                } catch (err) {
-                    console.error('Error en .video:', err);
                     await reply(`❌ Error: ${err.message}`);
                 }
                 return;
             }
 
-            // === AVISO DE MANTENIMIENTO PARA OTRAS DESCARGAS ===
-            if (['play2', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
+            // === DESCARGA TIKTOK (.tt) ===
+            if (command === 'tt' || command === 'tiktok') {
                 await react('🫰');
-                await reply('⚠️ Las funciones de descarga estan en mantenimiento temporal.');
+                if (!q) return reply('Ingresa un enlace de TikTok.');
+                try {
+                    await reply('📥 Procesando video de TikTok...');
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: q })
+                    });
+                    const data = await apiRes.json();
+                    const downloadUrl = data.video || data.url || data.downloadUrl;
+
+                    if (!downloadUrl) return reply('❌ No se pudo extraer el video de TikTok.');
+
+                    await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de TikTok' }, { quoted: m });
+                } catch (err) {
+                    await reply(`❌ Error con TikTok: ${err.message}`);
+                }
+                return;
+            }
+
+            // === COMANDO IA (.ia) ===
+            if (command === 'ia' || command === 'gemini') {
+                await react('🫰');
+                if (!q) return reply('Escribe tu pregunta para la Inteligencia Artificial.');
+                try {
+                    await reply('🧠 Pensando...');
+                    const apiRes = await fetch(`https://esdeath-api.onrender.com/api/gemini?text=${encodeURIComponent(q)}`);
+                    const data = await apiRes.json();
+                    const responseText = data.response || data.text || data.result;
+
+                    await reply(responseText || 'Sin respuesta de la IA.');
+                } catch (err) {
+                    await reply(`❌ Error en IA: ${err.message}`);
+                }
                 return;
             }
 
@@ -394,24 +306,10 @@ async function startBot() {
                     const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
                     if (!quotedMsg) return reply('Responde a un mensaje de ver una sola vez con .revelar');
 
-                    const viewOnceObj = quotedMsg.viewOnceMessage ||
-                                        quotedMsg.viewOnceMessageV2 ||
-                                        quotedMsg.viewOnceMessageV2Extension ||
-                                        quotedMsg.ephemeralMessage?.message?.viewOnceMessage ||
-                                        quotedMsg.ephemeralMessage?.message?.viewOnceMessageV2;
-
+                    const viewOnceObj = quotedMsg.viewOnceMessage || quotedMsg.viewOnceMessageV2;
                     let actualMessage = viewOnceObj ? viewOnceObj.message : quotedMsg;
 
-                    if (!actualMessage?.imageMessage && !actualMessage?.videoMessage) {
-                        if (quotedMsg.imageMessage || quotedMsg.videoMessage) {
-                            actualMessage = quotedMsg;
-                        } else {
-                            return reply('El mensaje al que respondiste no contiene contenido multimedia.');
-                        }
-                    }
-
                     const targetKey = { message: actualMessage, key: { remoteJid: sender } };
-
                     await reply('Revelando contenido...');
                     const buffer = await downloadMediaMessage(targetKey, 'buffer', {}, {
                         logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
