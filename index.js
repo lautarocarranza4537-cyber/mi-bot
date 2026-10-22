@@ -184,7 +184,7 @@ async function startBot() {
                 return;
             }
 
-            // === MENÚ (SOLO CON GEMINI Y SISTEMA LIMPIO) ===
+            // === MENÚ LIMPIO (SOLO GEMINI) ===
             if (command === 'menu' || command === 'help') {
                 await react('🫰');
                 const menuText = `*MENÚ DE COMANDOS COMPLETO*
@@ -206,7 +206,7 @@ async function startBot() {
 *DESCARGAS CON API*
 • \`.play\` ➔ *Audio de YouTube + Tarjeta.*
 • \`.video\` ➔ *Video de YouTube + Tarjeta.*
-• \`.tt\` ➔ *TikTok (Enlace o 5 resultados por nombre).*
+• \`.tt\` ➔ *TikTok (Enlace o 5 resultados).*
 • \`.ig\` ➔ *Instagram.*
 • \`.fb\` ➔ *Facebook.*
 • \`.spotify\` ➔ *Música de Spotify.*
@@ -235,7 +235,7 @@ async function startBot() {
                 return;
             }
 
-            // === STICKERS ===
+            // === STICKERS (.s) ===
             if (command === 's' || command === 'sticker') {
                 await react('🫰');
                 try {
@@ -266,7 +266,38 @@ async function startBot() {
                 return;
             }
 
-            // === DESCARGAS YOUTUBE (.play / .video - CORREGIDO BÚSQUEDA Y ERROR 403) ===
+            // === TOIMG (Sticker a Imagen) ===
+            if (command === 'toimg') {
+                await react('🫰');
+                try {
+                    const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
+                    if (!quotedMsg || !quotedMsg.stickerMessage) {
+                        return reply('❌ Responde a un sticker con el comando .toimg');
+                    }
+
+                    await reply('🔄 Convirtiendo sticker a imagen...');
+                    const targetMessage = { message: quotedMsg, key: { remoteJid: sender } };
+                    const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
+                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
+                    });
+
+                    const tempName = `img_${Date.now()}`;
+                    const inputPath = path.join(process.cwd(), `${tempName}.webp`);
+                    const outputPath = path.join(process.cwd(), `${tempName}.jpg`);
+
+                    await writeFile(inputPath, buffer);
+                    await execAsync(`ffmpeg -i "${inputPath}" "${outputPath}"`);
+
+                    await sock.sendMessage(sender, { image: { url: outputPath }, caption: '✅ Aquí tienes tu imagen' }, { quoted: m });
+                    await unlink(inputPath).catch(() => {});
+                    await unlink(outputPath).catch(() => {});
+                } catch (err) {
+                    await reply(`❌ Error al convertir el sticker: ${err.message}`);
+                }
+                return;
+            }
+
+            // === DESCARGAS YOUTUBE (.play / .video) ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
@@ -276,7 +307,6 @@ async function startBot() {
 
                     await reply('🔍 Buscando contenido...');
 
-                    // Búsqueda por texto si no es URL
                     if (!q.startsWith('http://') && !q.startsWith('https://')) {
                         const searchRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
                         const searchData = await searchRes.json();
@@ -303,7 +333,6 @@ async function startBot() {
                     const typeMedia = command === 'play' ? 'audio' : 'video';
                     await reply(`📥 Procesando ${typeMedia}...`);
 
-                    // Petición a la API sin reusar caché para evitar Error 403
                     const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -312,9 +341,8 @@ async function startBot() {
                     const data = await apiRes.json();
                     
                     const downloadUrl = data.downloadUrl || data.url || data.result?.url || data.result;
-                    if (!downloadUrl) return reply('❌ No se pudo obtener el enlace de descarga de la API.');
+                    if (!downloadUrl) return reply('❌ No se pudo obtener el enlace de descarga.');
 
-                    // Extraer todos los campos posibles de la API de Jinn
                     const title = data.title || data.meta?.title || searchInfo?.title || 'Canción de YouTube';
                     const author = data.author || data.channel || data.meta?.author || searchInfo?.author?.name || searchInfo?.channel || 'YouTube Content';
                     const duration = data.duration || data.lengthSeconds || searchInfo?.duration || searchInfo?.timestamp || 'N/A';
@@ -487,7 +515,7 @@ async function startBot() {
                 return;
             }
 
-            // === IA EXCLUSIVA: GEMINI (.ia / .gemini) ===
+            // === GEMINI (.ia / .gemini) ===
             if (command === 'ia' || command === 'gemini') {
                 await react('🫰');
                 if (!q) return reply('Escribe tu pregunta para Gemini.');
