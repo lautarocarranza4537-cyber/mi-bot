@@ -144,33 +144,40 @@ async function startBot() {
                         } 
                     }, { quoted: m });
                 } catch (err) {
-                    console.error('Error en comando .owner:', err);
-                    await reply('Error al enviar la tarjeta de contacto del Owner.');
+                    await reply('Error al enviar la tarjeta de contacto.');
                 }
                 return;
             }
 
-            // === MENU ===
+            // === MENU COMPLETO ===
             if (command === 'menu' || command === 'help') {
                 await react('🫰');
-                const menuText = `*MENÚ DE COMANDOS*
+                const menuText = `*MENÚ DE COMANDOS COMPLETO*
 *Prefijos permitidos:* \`.\` \`,\` \`+\`
 
 *UTILIDADES Y SISTEMA*
 • \`.ping\` ➔ *Latencia del servidor.*
-• \`.owner\` ➔ *Contacto del Owner.*
-• \`.ia\` ➔ *Preguntarle algo a la Inteligencia Artificial.*
+• \`.owner\` ➔ *Contacto del Creador.*
+
+*INTELIGENCIA ARTIFICIAL*
+• \`.ia\` / \`.gemini\` ➔ *Consultar a Gemini.*
+• \`.qwen\` ➔ *Consultar a Qwen IA.*
+• \`.deepseek\` ➔ *Consultar a DeepSeek.*
+• \`.dphn\` ➔ *Consultar a DPHN.*
 
 *MULTIMEDIA Y STICKERS*
 • \`.s\` ➔ *Crear sticker.*
 • \`.toimg\` ➔ *Convertir sticker a imagen.*
-• \`.revelar\` ➔ *Ver mensajes de una sola vez.*
+• \`.revelar\` ➔ *Ver fotos/videos de una sola vez.*
 
 *DESCARGAS CON API*
-• \`.play\` ➔ *Descargar audio de YouTube.*
-• \`.video\` ➔ *Descargar video de YouTube.*
-• \`.tt\` ➔ *Descargar video de TikTok.*
-• \`.ig\` ➔ *Descargar video/foto de Instagram.*`;
+• \`.play\` ➔ *Audio de YouTube.*
+• \`.video\` ➔ *Video de YouTube.*
+• \`.tt\` ➔ *Video de TikTok.*
+• \`.ig\` ➔ *Instagram.*
+• \`.fb\` ➔ *Facebook.*
+• \`.spotify\` ➔ *Música de Spotify.*
+• \`.pinterest\` ➔ *Buscador Pinterest.*`;
 
                 const currentBanner = await getStoredBanner();
                 try {
@@ -195,7 +202,7 @@ async function startBot() {
                 return;
             }
 
-            // === STICKER ===
+            // === STICKERS ===
             if (command === 's' || command === 'sticker') {
                 await react('🫰');
                 try {
@@ -221,14 +228,13 @@ async function startBot() {
                     await unlink(inputPath).catch(() => {});
                     await unlink(outputPath).catch(() => {});
                 } catch (err) {
-                    console.error('Error en .s:', err);
                     await reply('Error al procesar el sticker.');
                 }
                 return;
             }
 
-            // === DESCARGA YOUTUBE AUDIO (.play) ===
-            if (command === 'play') {
+            // === DESCARGAS YOUTUBE (.play / .video) ===
+            if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
                 try {
@@ -241,17 +247,111 @@ async function startBot() {
                         if (!videoUrl) return reply('❌ No se encontraron resultados.');
                     }
 
-                    await reply('📥 Procesando audio...');
+                    const typeMedia = command === 'play' ? 'audio' : 'video';
+                    await reply(`📥 Procesando ${typeMedia}...`);
+
                     const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: videoUrl, type: 'audio', upload: false })
+                        body: JSON.stringify({ url: videoUrl, type: typeMedia, upload: false })
                     });
                     const data = await apiRes.json();
                     const downloadUrl = data.downloadUrl || data.url || data.result;
 
-                    if (!downloadUrl) return reply('❌ Error al obtener el audio desde la API.');
+                    if (!downloadUrl) return reply('❌ Error al obtener el archivo.');
 
+                    if (typeMedia === 'audio') {
+                        await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
+                    } else {
+                        await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video' }, { quoted: m });
+                    }
+                } catch (err) {
+                    await reply(`❌ Error: ${err.message}`);
+                }
+                return;
+            }
+
+            // === TIKTOK (.tt) ===
+            if (command === 'tt' || command === 'tiktok') {
+                await react('🫰');
+                if (!q) return reply('Ingresa un enlace de TikTok.');
+                try {
+                    await reply('📥 Procesando TikTok...');
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: q, type: 'video', upload: false })
+                    });
+                    const data = await apiRes.json();
+                    const downloadUrl = data.video || data.url || data.downloadUrl || data.result;
+
+                    if (!downloadUrl) return reply('❌ Error al obtener el video de TikTok.');
+                    await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de TikTok' }, { quoted: m });
+                } catch (err) {
+                    await reply(`❌ Error: ${err.message}`);
+                }
+                return;
+            }
+
+            // === INSTAGRAM (.ig) ===
+            if (command === 'ig' || command === 'instagram') {
+                await react('🫰');
+                if (!q) return reply('Ingresa un enlace de Instagram.');
+                try {
+                    await reply('📥 Procesando Instagram...');
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/instagram', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: q, upload: false })
+                    });
+                    const data = await apiRes.json();
+                    const downloadUrl = data.url || data.downloadUrl || data.result;
+
+                    if (!downloadUrl) return reply('❌ Error al extraer contenido de Instagram.');
+                    await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu contenido' }, { quoted: m });
+                } catch (err) {
+                    await reply(`❌ Error: ${err.message}`);
+                }
+                return;
+            }
+
+            // === FACEBOOK (.fb) ===
+            if (command === 'fb' || command === 'facebook') {
+                await react('🫰');
+                if (!q) return reply('Ingresa un enlace de Facebook.');
+                try {
+                    await reply('📥 Procesando Facebook...');
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/facebook', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: q, upload: false })
+                    });
+                    const data = await apiRes.json();
+                    const downloadUrl = data.url || data.downloadUrl || data.result;
+
+                    if (!downloadUrl) return reply('❌ Error al obtener el video de Facebook.');
+                    await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de Facebook' }, { quoted: m });
+                } catch (err) {
+                    await reply(`❌ Error: ${err.message}`);
+                }
+                return;
+            }
+
+            // === SPOTIFY (.spotify) ===
+            if (command === 'spotify') {
+                await react('🫰');
+                if (!q) return reply('Ingresa un enlace de Spotify.');
+                try {
+                    await reply('📥 Procesando Spotify...');
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/spotify', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: q, upload: false })
+                    });
+                    const data = await apiRes.json();
+                    const downloadUrl = data.url || data.downloadUrl || data.result;
+
+                    if (!downloadUrl) return reply('❌ Error al obtener audio de Spotify.');
                     await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
                 } catch (err) {
                     await reply(`❌ Error: ${err.message}`);
@@ -259,40 +359,50 @@ async function startBot() {
                 return;
             }
 
-            // === DESCARGA TIKTOK (.tt) ===
-            if (command === 'tt' || command === 'tiktok') {
+            // === PINTEREST (.pinterest / .pin) ===
+            if (command === 'pinterest' || command === 'pin') {
                 await react('🫰');
-                if (!q) return reply('Ingresa un enlace de TikTok.');
+                if (!q) return reply('Escribe lo que quieres buscar en Pinterest.');
                 try {
-                    await reply('📥 Procesando video de TikTok...');
-                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: q })
-                    });
+                    await reply('🔍 Buscando en Pinterest...');
+                    const apiRes = await fetch(`https://esdeath-api.onrender.com/api/pinterest?q=${encodeURIComponent(q)}`);
                     const data = await apiRes.json();
-                    const downloadUrl = data.video || data.url || data.downloadUrl;
+                    const imageUrl = data.url || data.results?.[0] || data[0];
 
-                    if (!downloadUrl) return reply('❌ No se pudo extraer el video de TikTok.');
-
-                    await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de TikTok' }, { quoted: m });
+                    if (!imageUrl) return reply('❌ No se encontraron imágenes.');
+                    await sock.sendMessage(sender, { image: { url: imageUrl }, caption: `Resultado para: *${q}*` }, { quoted: m });
                 } catch (err) {
-                    await reply(`❌ Error con TikTok: ${err.message}`);
+                    await reply(`❌ Error: ${err.message}`);
                 }
                 return;
             }
 
-            // === COMANDO IA (.ia) ===
-            if (command === 'ia' || command === 'gemini') {
+            // === INTELIGENCIA ARTIFICIAL (GEMINI, QWEN, DEEPSEEK, DPHN) ===
+            if (['ia', 'gemini', 'qwen', 'deepseek', 'dphn'].includes(command)) {
                 await react('🫰');
-                if (!q) return reply('Escribe tu pregunta para la Inteligencia Artificial.');
+                if (!q) return reply('Escribe tu pregunta para la IA.');
                 try {
                     await reply('🧠 Pensando...');
-                    const apiRes = await fetch(`https://esdeath-api.onrender.com/api/gemini?text=${encodeURIComponent(q)}`);
-                    const data = await apiRes.json();
-                    const responseText = data.response || data.text || data.result;
+                    let endpoint = command === 'ia' ? 'gemini' : command;
+                    let bodyPayload = { prompt: q };
 
-                    await reply(responseText || 'Sin respuesta de la IA.');
+                    if (endpoint === 'gemini') {
+                        bodyPayload = { prompt: q, chatId: null, model: 'flash-lite' };
+                    } else if (endpoint === 'dphn') {
+                        bodyPayload = { prompt: q, template: 'logical' };
+                    } else if (endpoint === 'deepseek') {
+                        bodyPayload = { prompt: q, chatId: null, parentId: null };
+                    }
+
+                    const apiRes = await fetch(`https://esdeath-api.onrender.com/api/${endpoint}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(bodyPayload)
+                    });
+                    const data = await apiRes.json();
+                    const answer = data.response || data.text || data.result;
+
+                    await reply(answer || 'Sin respuesta de la IA.');
                 } catch (err) {
                     await reply(`❌ Error en IA: ${err.message}`);
                 }
@@ -304,7 +414,7 @@ async function startBot() {
                 await react('🫰');
                 try {
                     const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
-                    if (!quotedMsg) return reply('Responde a un mensaje de ver una sola vez con .revelar');
+                    if (!quotedMsg) return reply('Responde a un mensaje de ver una sola vez.');
 
                     const viewOnceObj = quotedMsg.viewOnceMessage || quotedMsg.viewOnceMessageV2;
                     let actualMessage = viewOnceObj ? viewOnceObj.message : quotedMsg;
