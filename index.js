@@ -184,7 +184,7 @@ async function startBot() {
                 return;
             }
 
-            // === MENU ===
+            // === MENU COMPLETO ===
             if (command === 'menu' || command === 'help') {
                 await react('🫰');
                 const menuText = `*MENÚ DE COMANDOS COMPLETO*
@@ -207,9 +207,9 @@ async function startBot() {
 • \`.revelar\` ➔ *Ver fotos/videos de una sola vez.*
 
 *DESCARGAS CON API*
-• \`.play\` ➔ *Audio de YouTube + Información.*
-• \`.video\` ➔ *Video de YouTube + Información.*
-• \`.tt\` ➔ *Video de TikTok.*
+• \`.play\` ➔ *Audio de YouTube + Info Completa.*
+• \`.video\` ➔ *Video de YouTube + Info Completa.*
+• \`.tt\` ➔ *Video o Búsqueda TikTok (5 videos).*
 • \`.ig\` ➔ *Instagram.*
 • \`.fb\` ➔ *Facebook.*
 • \`.spotify\` ➔ *Música de Spotify.*
@@ -269,7 +269,7 @@ async function startBot() {
                 return;
             }
 
-            // === DESCARGAS YOUTUBE AUDIO/VIDEO CON TARJETA DE INFORMACIÓN ===
+            // === DESCARGAS YOUTUBE AUDIO/VIDEO CON METADATOS EXTRAÍDOS AL MÁXIMO ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
@@ -279,7 +279,6 @@ async function startBot() {
 
                     await reply('🔍 Buscando e identificando contenido...');
 
-                    // Búsqueda en la API si no es una URL directa
                     if (!q.startsWith('http://') && !q.startsWith('https://')) {
                         const searchRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
                         const searchData = await searchRes.json();
@@ -292,8 +291,8 @@ async function startBot() {
                     }
 
                     const typeMedia = command === 'play' ? 'audio' : 'video';
+                    await reply(`📥 Procesando ${typeMedia}...`);
 
-                    // Petición de descarga a la API
                     const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -304,13 +303,13 @@ async function startBot() {
                     const downloadUrl = data.downloadUrl || data.url || data.result?.url || data.result;
                     if (!downloadUrl) return reply('❌ No se pudo extraer la URL de descarga.');
 
-                    // Extraer metadatos para la tarjeta informativa
-                    const title = data.title || searchInfo?.title || 'Canción/Video de YouTube';
-                    const author = data.author || data.channel || searchInfo?.author?.name || searchInfo?.channel || 'YouTube Content';
-                    const duration = data.duration || searchInfo?.duration || searchInfo?.timestamp || 'N/A';
-                    const views = data.views || searchInfo?.views || 'N/A';
-                    const likes = data.likes || searchInfo?.likes || 'N/A';
-                    const thumbnail = data.thumbnail || data.thumb || searchInfo?.thumbnail || searchInfo?.image || 'https://i.imgur.com/3ZQ6316.jpeg';
+                    // Extracción profunda en caso de que vengan anidados en meta, details o result
+                    const title = data.title || data.meta?.title || data.details?.title || searchInfo?.title || 'Canción/Video de YouTube';
+                    const author = data.author || data.channel || data.meta?.author || data.meta?.channel || searchInfo?.author?.name || searchInfo?.channel || 'YouTube Content';
+                    const duration = data.duration || data.lengthSeconds || data.meta?.duration || searchInfo?.duration || searchInfo?.timestamp || 'N/A';
+                    const views = data.views || data.viewCount || data.meta?.views || searchInfo?.views || searchInfo?.viewCount || 'N/A';
+                    const likes = data.likes || data.likeCount || data.meta?.likes || searchInfo?.likes || 'N/A';
+                    const thumbnail = data.thumbnail || data.thumb || data.image || searchInfo?.thumbnail || searchInfo?.image || 'https://i.imgur.com/3ZQ6316.jpeg';
 
                     const infoCaption = `🎵 *INFORMACIÓN DE LA CANCIÓN*
 📌 *Título:* ${title}
@@ -320,14 +319,14 @@ async function startBot() {
 👍 *Likes:* ${likes}
 🔗 *Link:* ${targetUrl}`;
 
-                    // 1. Enviar la Tarjeta con la foto e información
+                    // Enviar tarjeta
                     try {
                         await sock.sendMessage(sender, { image: { url: thumbnail }, caption: infoCaption }, { quoted: m });
                     } catch {
                         await reply(infoCaption);
                     }
 
-                    // 2. Enviar el Audio/Video justo abajo
+                    // Enviar multimedia
                     if (typeMedia === 'audio') {
                         await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
                     } else {
@@ -339,24 +338,61 @@ async function startBot() {
                 return;
             }
 
-            // === TIKTOK (.tt) ===
+            // === TIKTOK (.tt / .tiktok - Soporte de Enlace Directo o Búsqueda de 5 Videos) ===
             if (command === 'tt' || command === 'tiktok') {
                 await react('🫰');
-                if (!q) return reply('Ingresa un enlace de TikTok.');
+                if (!q) return reply('Ingresa el nombre de un video o un enlace de TikTok.');
                 try {
-                    await reply('📥 Procesando TikTok...');
-                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: q, type: 'video', upload: false })
-                    });
-                    const data = await apiRes.json();
-                    const downloadUrl = data.video || data.downloadUrl || data.url || data.result?.url || data.result;
+                    // Si el usuario mandó un enlace de TikTok
+                    if (q.startsWith('http://') || q.startsWith('https://')) {
+                        await reply('📥 Procesando TikTok...');
+                        const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url: q, type: 'video', upload: false })
+                        });
+                        const data = await apiRes.json();
+                        const downloadUrl = data.video || data.downloadUrl || data.url || data.result?.url || data.result;
 
-                    if (!downloadUrl) return reply('❌ Error al obtener el video de TikTok.');
-                    await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de TikTok' }, { quoted: m });
+                        if (!downloadUrl) return reply('❌ Error al obtener el video de TikTok.');
+                        await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de TikTok' }, { quoted: m });
+                        return;
+                    }
+
+                    // Si es BÚSQUEDA POR TEXTO -> Busca y descarga los primeros 5 videos
+                    await reply(`🔍 Buscando los primeros 5 videos de TikTok para: "${q}"...`);
+                    const searchRes = await fetch(`https://esdeath-api.onrender.com/api/tiktok/search?keyword=${encodeURIComponent(q)}&count=5`);
+                    const searchData = await searchRes.json();
+
+                    const items = Array.isArray(searchData) ? searchData : (searchData.results || searchData.data || searchData.videos || []);
+                    const top5 = items.slice(0, 5);
+
+                    if (top5.length === 0) return reply('❌ No se encontraron resultados en TikTok para esa búsqueda.');
+
+                    for (let i = 0; i < top5.length; i++) {
+                        const item = top5[i];
+                        const videoPageUrl = item.url || item.link || item.video_url;
+
+                        if (!videoPageUrl) continue;
+
+                        const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ url: videoPageUrl, type: 'video', upload: false })
+                        });
+                        const data = await apiRes.json();
+                        const downloadUrl = data.video || data.downloadUrl || data.url || data.result?.url || data.result;
+
+                        if (downloadUrl) {
+                            const desc = item.title || item.desc || data.title || `Video de TikTok #${i + 1}`;
+                            await sock.sendMessage(sender, { 
+                                video: { url: downloadUrl }, 
+                                caption: `🎬 *Resultado ${i + 1} de 5*\n📝 *Descripción:* ${desc}` 
+                            }, { quoted: m });
+                        }
+                    }
                 } catch (err) {
-                    await reply(`❌ Error: ${err.message}`);
+                    await reply(`❌ Error procesando TikTok: ${err.message}`);
                 }
                 return;
             }
