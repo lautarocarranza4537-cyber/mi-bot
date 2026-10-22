@@ -1,12 +1,4 @@
-import makeWASocket, {
-    DisconnectReason,
-    useMultiFileAuthState,
-    downloadMediaMessage,
-    fetchLatestBaileysVersion,
-    makeCacheableSignalKeyStore,
-    WASocket,
-    proto
-} from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, downloadMediaMessage, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import readline from 'readline';
@@ -17,29 +9,24 @@ import path from 'path';
 
 const execAsync = promisify(exec);
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const askQuestion = (text: string): Promise<string> => new Promise((resolve) => rl.question(text, resolve));
+const askQuestion = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 const BANNER_FILE = path.join(process.cwd(), 'banner.json');
 
-interface BannerData {
-    url: string;
-    type: 'image' | 'video';
-}
-
-async function getStoredBanner(): Promise<BannerData> {
+async function getStoredBanner() {
     try {
         const data = await readFile(BANNER_FILE, 'utf-8');
-        return JSON.parse(data) as BannerData;
+        return JSON.parse(data);
     } catch {
         return { url: 'https://i.imgur.com/3ZQ6316.jpeg', type: 'image' };
     }
 }
 
-async function saveStoredBanner(url: string, type: 'image' | 'video'): Promise<void> {
+async function saveStoredBanner(url, type) {
     await writeFile(BANNER_FILE, JSON.stringify({ url, type }));
 }
 
-function formatDuration(seconds?: number): string {
+function formatDuration(seconds) {
     if (!seconds) return 'Desconocida';
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -50,11 +37,11 @@ function formatDuration(seconds?: number): string {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 }
 
-async function startBot(): Promise<void> {
+async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const { version } = await fetchLatestBaileysVersion();
 
-    const sock: WASocket = makeWASocket({
+    const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
         auth: {
@@ -65,21 +52,19 @@ async function startBot(): Promise<void> {
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
-    if (!sock.authState.creds.registered) {
-        let phoneNumber = process.env.PHONE_NUMBER || '5493513157041';
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    let phoneNumber = process.env.PHONE_NUMBER || "";
+    phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
-        if (!process.env.PHONE_NUMBER) {
+    if (!sock.authState.creds.registered) {
+        if (!phoneNumber) {
             console.log('\nCONFIGURACION DE EMPAREJAMIENTO');
-            let inputNum = await askQuestion('Ingresa tu numero de WhatsApp (Enter para usar +54 351 3157041): ');
-            if (inputNum.trim()) {
-                phoneNumber = inputNum.replace(/[^0-9]/g, '');
-            }
-            try { rl.close(); } catch {}
+            phoneNumber = await askQuestion('Ingresa tu numero de WhatsApp (ej: 549351XXXXXXXX): ');
+            phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
         }
-        
-        console.log(`Conectando y solicitando codigo de emparejamiento para ${phoneNumber}...`);
-        
+
+        try { rl.close(); } catch {}
+        console.log('Conectando y solicitando codigo de emparejamiento...');
+
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -97,7 +82,7 @@ async function startBot(): Promise<void> {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'close') {
-            const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             if (reason === DisconnectReason.loggedOut) {
                 console.log('Sesion cerrada. Borra auth_info_baileys y vincula de nuevo.');
             } else {
@@ -105,7 +90,7 @@ async function startBot(): Promise<void> {
                 startBot();
             }
         } else if (connection === 'open') {
-            console.log('Bot conectado y listo.');
+            console.log('Bot conectado y listo en la nube.');
             try { rl.close(); } catch {}
         }
     });
@@ -114,108 +99,174 @@ async function startBot(): Promise<void> {
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
         try {
-            const m: proto.IWebMessageInfo = messages[0];
+            const m = messages[0];
             if (!m.message) return;
 
             const messageType = Object.keys(m.message)[0];
             let body = '';
 
             if (messageType === 'conversation') {
-                body = m.message.conversation || '';
+                body = m.message.conversation;
             } else if (messageType === 'extendedTextMessage') {
-                body = m.message.extendedTextMessage?.text || '';
+                body = m.message.extendedTextMessage.text;
             } else if (messageType === 'imageMessage' || messageType === 'videoMessage') {
-                body = m.message[messageType as 'imageMessage' | 'videoMessage']?.caption || '';
+                body = m.message[messageType].caption || '';
             }
 
-            if (!body.startsWith('.') && !body.startsWith(',')) return;
-
-            const args = body.slice(1).trim().split(/ +/);
-            const command = args.shift()?.toLowerCase() || '';
+            if (!body) return;
             const sender = m.key.remoteJid;
-            if (!sender) return;
+            const text = body.trim();
 
-            const q = args.join(' ');
-
-            const reply = async (texto: string) => {
+            const reply = async (texto) => {
                 return await sock.sendMessage(sender, { text: texto }, { quoted: m });
             };
 
-            // === MENÚ CON OWNER INCLUIDO ===
+            // === 1. EJECUTOR JAVASCRIPT / EVAL AL VUELO (Símbolo '>') ===
+            if (text.startsWith('>')) {
+                let code = text.slice(1).trim();
+                code = code.replace(/print\((.*?)\)/g, 'console.log($1)');
+
+                try {
+                    let output = '';
+                    const customConsole = {
+                        log: (...args: any[]) => {
+                            output += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' ') + '\n';
+                        }
+                    };
+                    
+                    let evaled;
+                    try {
+                        evaled = await eval(`(async (console) => { ${code.includes('return') ? code : 'return ' + code} })(customConsole)`);
+                    } catch {
+                        await eval(`(async (console) => { ${code} })(customConsole)`);
+                    }
+
+                    if (evaled !== undefined && !output) {
+                        output = typeof evaled === 'object' ? JSON.stringify(evaled, null, 2) : String(evaled);
+                    }
+
+                    await reply(`*Salida (JS):*\n\`\`\`\n${output.trim() || 'Ejecutado sin salida'}\n\`\`\``);
+                } catch (e: any) {
+                    await reply(`*Error (JS):*\n\`\`\`\n${e.message}\n\`\`\``);
+                }
+                return;
+            }
+
+            // === 2. EJECUTOR PYTHON 3 (.py) ===
+            if (text.startsWith('.py')) {
+                const code = text.slice(3).trim();
+                if (!code) return reply('❌ Escribe código Python después de `.py`');
+
+                const tmpFile = path.join(process.cwd(), `temp_${Date.now()}.py`);
+                await writeFile(tmpFile, code);
+
+                try {
+                    const { stdout, stderr } = await execAsync(`python3 ${tmpFile}`, { timeout: 10000 });
+                    await unlink(tmpFile);
+
+                    let res = '';
+                    if (stdout) res += `*Salida (Python):*\n\`\`\`\n${stdout.trim()}\n\`\`\`\n`;
+                    if (stderr) res += `*Error (Python):*\n\`\`\`\n${stderr.trim()}\n\`\`\`\n`;
+                    if (!stdout && !stderr) res = '✅ Ejecutado con éxito sin salida explícita.';
+
+                    await reply(res);
+                } catch (error: any) {
+                    if (await readFile(tmpFile).catch(() => null)) await unlink(tmpFile);
+                    await reply(`*Error de ejecución Python:*\n\`\`\`\n${error.message}\n\`\`\``);
+                }
+                return;
+            }
+
+            // Validación de comandos tradicionales (. o , o +)
+            if (!text.startsWith('.') && !text.startsWith(',') && !text.startsWith('+')) return;
+
+            const args = text.slice(1).trim().split(/ +/);
+            const command = args.shift().toLowerCase();
+            const q = args.join(' ');
+
+            // === COMANDO OWNER / CREADOR ===
+            if (command === 'owner' || command === 'creador' || command === 'contacto') {
+                try {
+                    const ownerNumber = "5493513157041";
+                    const vcard = 'BEGIN:VCARD\r\n'
+                        + 'VERSION:3.0\r\n' 
+                        + 'N:Jonathan;Owner;;;\r\n'
+                        + 'FN:Jonathan | Owner\r\n'
+                        + 'ORG:Desarrollador Bot;\r\n'
+                        + `TEL;type=CELL;type=VOICE;waid=${ownerNumber}:+${ownerNumber}\r\n`
+                        + 'END:VCARD';
+
+                    await sock.sendMessage(sender, { 
+                        contacts: { 
+                            displayName: 'Jonathan | Owner', 
+                            contacts: [{ vcard }] 
+                        } 
+                    }, { quoted: m });
+                } catch (err) {
+                    console.error('Error en comando .owner:', err);
+                    await reply('Error al enviar la tarjeta de contacto del Owner.');
+                }
+                return;
+            }
+
+            // === MENU MULTIMEDIA ===
             if (command === 'menu' || command === 'help') {
                 const menuText = `*MENÚ DE COMANDOS*
-*Prefijos permitidos:* \`.\` \`,\` \`+\`
+*Prefijos permitidos:* \`.\` \`,\` \`+\` \`>\`
+
+*ENTORNO DE PROGRAMACIÓN*
+• \`> [código]\` ➔ *Ejecuta JavaScript al vuelo.*
+• \`.py [código]\` ➔ *Ejecuta Python 3 completo.*
 
 *UTILIDADES Y SISTEMA*
-• \`.ping\` ➔ *Muestra la latencia en tiempo real.*
-• \`.owner\` ➔ *Muestra la tarjeta de contacto del creador.*
-• \`.setbanner\` ➔ *Guarda foto, GIF o video citado como banner principal.*
+• \`.ping\` ➔ *Muestra la latencia.*
+• \`.owner\` ➔ *Muestra la tarjeta de contacto de Jonathan | Owner.*
+• \`.setbanner\` ➔ *Guarda foto, GIF o video citado como banner.*
 
 *MULTIMEDIA Y STICKERS*
-• \`.s\` o \`.sticker\` ➔ *Convierte foto o video corto en sticker.*
-• \`.toimg\` ➔ *Convierte un sticker en formato de imagen.*
-• \`.revelar\` ➔ *Muestra el contenido de fotos o videos de una sola vez.*
+• \`.s\` o \`.sticker\` ➔ *Convierte foto o video en sticker.*
+• \`.toimg\` ➔ *Convierte sticker a imagen.*
+• \`.revelar\` ➔ *Muestra fotos o videos de una sola vez.*
 
 *DESCARGAS Y STREAMING*
-• \`.play\` ➔ *Busca y descarga música con detalles y duración.*
-  _Ejemplo: \`.play Bad Bunny\`_
-• \`.sc\` ➔ *Busca y descarga audios desde SoundCloud.*
-  _Ejemplo: \`.sc phonk\`_
-• \`.tt\` ➔ *Descarga videos de TikTok por enlace directo.*
-  _Ejemplo: \`.tt https://vm.tiktok.com/...\`_
-• \`.ig\` ➔ *Descarga contenido multimedia de Instagram.*
-  _Ejemplo: \`.ig https://www.instagram.com/...\`_
-• \`.fb\` ➔ *Descarga videos desde Facebook.*
-  _Ejemplo: \`.fb https://www.facebook.com/...\`_`;
+• \`.play [búsqueda/link]\` ➔ *Busca y descarga música con detalles.*
+• \`.play2 [búsqueda/link]\` ➔ *Descarga exclusiva de audio de YouTube.*
+• \`.video [link]\` ➔ *🌐 Descarga universal de CUALQUIER app o página web.*
+• \`.sc [búsqueda/link]\` ➔ *Audios de SoundCloud.*
+• \`.tt [link]\` ➔ *Videos de TikTok.*
+• \`.ig [link]\` ➔ *Contenido de Instagram.*
+• \`.fb [link]\` ➔ *Videos de Facebook.*`;
 
                 const currentBanner = await getStoredBanner();
                 try {
                     if (currentBanner.type === 'video') {
-                        await sock.sendMessage(sender, { 
-                            video: { url: currentBanner.url }, 
-                            caption: menuText, 
-                            gifPlayback: true 
+                        await sock.sendMessage(sender, {
+                            video: { url: currentBanner.url },
+                            caption: menuText,
+                            gifPlayback: true
                         }, { quoted: m });
                     } else {
-                        await sock.sendMessage(sender, { 
-                            image: { url: currentBanner.url }, 
-                            caption: menuText 
+                        await sock.sendMessage(sender, {
+                            image: { url: currentBanner.url },
+                            caption: menuText
                         }, { quoted: m });
                     }
                 } catch {
                     await reply(menuText);
                 }
+                return;
             }
 
             // === PING ===
             if (command === 'ping') {
                 const start = Date.now();
                 const sentMsg = await reply('Calculando ping...');
-                if (sentMsg) {
-                    const latencia = Date.now() - start;
-                    await sock.sendMessage(sender, { text: `Pong\nLatencia: *${latencia} ms*`, edit: sentMsg.key });
-                }
+                const latencia = Date.now() - start;
+                await sock.sendMessage(sender, { text: `Pong\nLatencia: *${latencia} ms*`, edit: sentMsg.key });
+                return;
             }
 
-            // === OWNER / CONTACTO CORREGIDO ===
-            if (command === 'owner' || command === 'contacto') {
-                const vcard = 'BEGIN:VCARD\r\n' +
-                    'VERSION:3.0\r\n' +
-                    'N:;Jonathan|owner;;;\r\n' +
-                    'FN:Jonathan|owner\r\n' +
-                    'ORG:Creador del Bot;\r\n' +
-                    'TEL;type=CELL;type=VOICE;waid=5493513157041:+54 351 315-7041\r\n' +
-                    'END:VCARD';
-
-                await sock.sendMessage(sender, {
-                    contacts: {
-                        displayName: 'Jonathan|owner',
-                        contacts: [{ vcard }]
-                    }
-                }, { quoted: m });
-            }
-
-            // === SETBANNER ===
+            // === SETBANNER MEJORADO ===
             if (command === 'setbanner') {
                 try {
                     const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -224,18 +275,18 @@ async function startBot(): Promise<void> {
                     const isVideo = targetMessage.message?.videoMessage;
 
                     if (!isImage && !isVideo) {
-                        return reply('Responde a una imagen, GIF o video corto con .setbanner para establecerlo como banner.');
+                        return reply('Responde a una imagen, GIF o video corto con .setbanner.');
                     }
 
-                    const mime = (isImage || isVideo)?.mimetype || '';
-                    const buffer = await downloadMediaMessage(targetMessage as any, 'buffer', {}, { 
-                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage 
+                    const mime = (isImage || isVideo).mimetype || '';
+                    const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
+                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
                     });
 
                     const ext = mime.includes('video') ? 'mp4' : 'jpg';
-                    const type: 'image' | 'video' = mime.includes('video') ? 'video' : 'image';
+                    const type = mime.includes('video') ? 'video' : 'image';
                     const bannerPath = path.join(process.cwd(), `banner_${Date.now()}.${ext}`);
-                    
+
                     await writeFile(bannerPath, buffer);
                     await saveStoredBanner(bannerPath, type);
 
@@ -244,9 +295,10 @@ async function startBot(): Promise<void> {
                     console.error('Error en setbanner:', err);
                     await reply('Error al actualizar el banner.');
                 }
+                return;
             }
 
-            // === STICKER ===
+            // === STICKER (.s) ===
             if (command === 's' || command === 'sticker') {
                 try {
                     const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -256,16 +308,16 @@ async function startBot(): Promise<void> {
                     if (!mime) return reply('Responde a una imagen o video corto con .s');
 
                     await reply('Procesando sticker...');
-                    const buffer = await downloadMediaMessage(targetMessage as any, 'buffer', {}, { 
-                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage 
+                    const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
+                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
                     });
 
                     const tempName = `img_${Date.now()}`;
                     const inputPath = path.join(process.cwd(), `${tempName}.tmp`);
                     const outputPath = path.join(process.cwd(), `${tempName}.webp`);
-                    
+
                     await writeFile(inputPath, buffer);
-                    await execAsync(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -y "${outputPath}"`);
+                    await execAsync(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-ih)/2:(oh-ih)/2:color=0x00000000" -y "${outputPath}"`);
 
                     await sock.sendMessage(sender, { sticker: { url: outputPath } }, { quoted: m });
                     await unlink(inputPath).catch(() => {});
@@ -274,6 +326,7 @@ async function startBot(): Promise<void> {
                     console.error('Error en .s:', err);
                     await reply('Error al procesar el sticker.');
                 }
+                return;
             }
 
             // === TOIMG ===
@@ -286,8 +339,8 @@ async function startBot(): Promise<void> {
 
                     await reply('Convirtiendo sticker a imagen...');
                     const targetMessage = { message: quotedMsg, key: { remoteJid: sender } };
-                    const buffer = await downloadMediaMessage(targetMessage as any, 'buffer', {}, { 
-                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage 
+                    const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
+                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
                     });
 
                     const tempPath = path.join(process.cwd(), `img_${Date.now()}.png`);
@@ -299,45 +352,37 @@ async function startBot(): Promise<void> {
                     console.error('Error en .toimg:', err);
                     await reply('Error al convertir el sticker a imagen.');
                 }
+                return;
             }
 
-            // === PLAY ===
+            // === PLAY (Música de YouTube) ===
             if (command === 'play') {
                 if (!q) return reply('Escribe el nombre o link de la cancion.\nEjemplo: .play Bad Bunny');
                 try {
-                    await reply('Buscando informacion y archivo de audio...');
-                    
+                    await reply('🔎 Buscando información y procesando audio...');
+
                     const querySearch = q.startsWith('http') ? q : `ytsearch1:${q}`;
                     const jsonCmd = `yt-dlp -j --skip-download "${querySearch}"`;
                     const { stdout } = await execAsync(jsonCmd);
                     const info = JSON.parse(stdout.trim().split('\n')[0]);
 
-                    const title: string = info.title || 'Desconocido';
-                    const channel: string = info.uploader || info.channel || 'Desconocido';
-                    const duration: string = formatDuration(info.duration);
-                    const views: string = info.view_count ? info.view_count.toLocaleString() : 'No disponible';
-                    const likes: string = info.like_count ? info.like_count.toLocaleString() : 'No disponible';
-                    const uploadDate: string = info.upload_date ? `${info.upload_date.slice(6,8)}/${info.upload_date.slice(4,6)}/${info.upload_date.slice(0,4)}` : 'Desconocido';
-                    const videoUrl: string = info.webpage_url || info.url;
-                    const thumbUrl: string | undefined = info.thumbnail;
+                    const title = info.title || 'Desconocido';
+                    const channel = info.uploader || info.channel || 'Desconocido';
+                    const duration = formatDuration(info.duration);
+                    const videoUrl = info.webpage_url || info.url;
+                    const thumbUrl = info.thumbnail;
 
-                    const infoText = `Informacion de la cancion:\n\n` +
-                        `• Nombre: ${title}\n` +
-                        `• Canal / Artista: ${channel}\n` +
-                        `• Duracion: ${duration}\n` +
-                        `• Vistas: ${views}\n` +
-                        `• Likes: ${likes}\n` +
-                        `• Lanzamiento: ${uploadDate}\n` +
-                        `• Link: ${videoUrl}`;
+                    const infoText = `🎵 *Información de la canción:*\n\n` +
+                        `• *Nombre:* ${title}\n` +
+                        `• *Artista:* ${channel}\n` +
+                        `• *Duración:* ${duration}\n` +
+                        `• *Link:* ${videoUrl}`;
 
                     const outputAudio = path.join(process.cwd(), `audio_${Date.now()}.mp3`);
-                    await execAsync(`yt-dlp -x --audio-format mp3 -o "${outputAudio.replace('.mp3', '.%(ext)s')}" "${videoUrl}"`);
+                    await execAsync(`yt-dlp -x --audio-format mp3 -o "${outputAudio}" "${videoUrl}"`);
 
                     if (thumbUrl) {
-                        await sock.sendMessage(sender, { 
-                            image: { url: thumbUrl }, 
-                            caption: infoText 
-                        }, { quoted: m });
+                        await sock.sendMessage(sender, { image: { url: thumbUrl }, caption: infoText }, { quoted: m });
                     } else {
                         await reply(infoText);
                     }
@@ -346,104 +391,132 @@ async function startBot(): Promise<void> {
                     await unlink(outputAudio).catch(() => {});
                 } catch (err) {
                     console.error('Error en .play:', err);
-                    await reply('Error al procesar la peticion con yt-dlp.');
+                    await reply('❌ Error al procesar la canción de YouTube.');
                 }
+                return;
             }
 
-            // === SOUNDCLOUD (.sc) ===
-            if (command === 'sc') {
-                if (!q) return reply('Ingresa la busqueda o link de SoundCloud.\nEjemplo: .sc phonk');
+            // === PLAY2 (EXCLUSIVO PARA AUDIO DE YOUTUBE) ===
+            if (command === 'play2') {
+                if (!q) return reply('❌ Ingresa el nombre o enlace de YouTube.\nEjemplo: `.play2 https://youtube.com/watch?v=...` o `.play2 Phonk`');
                 try {
-                    await reply('Buscando en SoundCloud...');
-                    
-                    const querySearch = q.startsWith('http') ? q : `scsearch1:${q}`;
+                    await reply('🎵 *Descargando audio de YouTube en alta calidad...*');
+
+                    const querySearch = q.startsWith('http') ? q : `ytsearch1:${q}`;
                     const jsonCmd = `yt-dlp -j --skip-download "${querySearch}"`;
                     const { stdout } = await execAsync(jsonCmd);
                     const info = JSON.parse(stdout.trim().split('\n')[0]);
 
-                    const title: string = info.title || 'Desconocido';
-                    const uploader: string = info.uploader || info.channel || 'Desconocido';
-                    const duration: string = formatDuration(info.duration);
-                    const views: string = info.view_count ? info.view_count.toLocaleString() : 'No disponible';
-                    const likes: string = info.like_count ? info.like_count.toLocaleString() : 'No disponible';
-                    const uploadDate: string = info.upload_date ? `${info.upload_date.slice(6,8)}/${info.upload_date.slice(4,6)}/${info.upload_date.slice(0,4)}` : 'Desconocido';
-                    const trackUrl: string = info.webpage_url || info.url;
-                    const thumbUrl: string | undefined = info.thumbnail;
+                    const title = info.title || 'Desconocido';
+                    const videoUrl = info.webpage_url || info.url;
 
-                    const infoText = `Informacion de SoundCloud:\n\n` +
-                        `• Titulo: ${title}\n` +
-                        `• Artista: ${uploader}\n` +
-                        `• Duracion: ${duration}\n` +
-                        `• Reproducciones: ${views}\n` +
-                        `• Likes: ${likes}\n` +
-                        `• Lanzamiento: ${uploadDate}\n` +
-                        `• Link: ${trackUrl}`;
+                    const outputAudio = path.join(process.cwd(), `play2_${Date.now()}.mp3`);
+                    await execAsync(`yt-dlp -x --audio-format mp3 -o "${outputAudio}" "${videoUrl}"`);
+
+                    await sock.sendMessage(sender, { 
+                        audio: { url: outputAudio }, 
+                        mimetype: 'audio/mp4', 
+                        ptt: false
+                    }, { quoted: m });
+
+                    await unlink(outputAudio).catch(() => {});
+                } catch (err) {
+                    console.error('Error en .play2:', err);
+                    await reply('❌ Error al descargar el audio con .play2.');
+                }
+                return;
+            }
+
+            // === VIDEO (DESCARGA UNIVERSAL DE CUALQUIER APP O PÁGINA WEB) ===
+            if (command === 'video') {
+                if (!q || !q.startsWith('http')) {
+                    return reply('❌ Por favor ingresa un enlace válido enviado desde cualquier app o página web.\nEjemplo: `.video https://vm.tiktok.com/...` o `.video https://pin.it/...`');
+                }
+                try {
+                    await reply('📱 *Procesando enlace universal de app/web y descargando video...*');
+                    const outputVideo = path.join(process.cwd(), `video_${Date.now()}.mp4`);
+                    
+                    // Configuración omnicanal: sigue redirecciones de apps, ignora SSL y extrae de cualquier plataforma
+                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputVideo}" "${q}"`);
+
+                    await sock.sendMessage(sender, { 
+                        video: { url: outputVideo }, 
+                        caption: '✅ *Video descargado exitosamente desde la aplicación/web.*' 
+                    }, { quoted: m });
+
+                    await unlink(outputVideo).catch(() => {});
+                } catch (err) {
+                    console.error('Error en .video universal:', err);
+                    await reply('❌ No se pudo extraer el video de ese enlace. Verifica que la publicación o video sea público.');
+                }
+                return;
+            }
+
+            // === SOUNDCLOUD (.sc) ===
+            if (command === 'sc') {
+                if (!q) return reply('Ingresa la busqueda o link de SoundCloud.');
+                try {
+                    await reply('Buscando en SoundCloud...');
+                    const querySearch = q.startsWith('http') ? q : `scsearch1:${q}`;
+                    const jsonCmd = `yt-dlp -j --skip-download "${querySearch}"`;
+                    const { stdout } = await execAsync(jsonCmd);
+                    const info = JSON.parse(stdout.trim().split('\n')[0]);
+                    const trackUrl = info.webpage_url || info.url;
 
                     const outputAudio = path.join(process.cwd(), `sc_${Date.now()}.mp3`);
-                    await execAsync(`yt-dlp -x --audio-format mp3 -o "${outputAudio.replace('.mp3', '.%(ext)s')}" "${trackUrl}"`);
-
-                    if (thumbUrl) {
-                        await sock.sendMessage(sender, { 
-                            image: { url: thumbUrl }, 
-                            caption: infoText 
-                        }, { quoted: m });
-                    } else {
-                        await reply(infoText);
-                    }
+                    await execAsync(`yt-dlp -x --audio-format mp3 -o "${outputAudio}" "${trackUrl}"`);
 
                     await sock.sendMessage(sender, { audio: { url: outputAudio }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
                     await unlink(outputAudio).catch(() => {});
                 } catch (err) {
-                    console.error('Error en .sc:', err);
                     await reply('Error al obtener el archivo de SoundCloud.');
                 }
+                return;
             }
 
             // === TIKTOK (.tt) ===
             if (command === 'tt') {
-                if (!q || !q.startsWith('http')) {
-                    return reply('Por favor ingresa un enlace valido de TikTok.\nEjemplo: .tt https://vm.tiktok.com/...');
-                }
+                if (!q || !q.startsWith('http')) return reply('Ingresa un enlace valido de TikTok.');
                 try {
                     await reply('Descargando video de TikTok...');
                     const outputVideo = path.join(process.cwd(), `tt_${Date.now()}.mp4`);
-                    await execAsync(`yt-dlp -f b -o "${outputVideo}" "${q}"`);
-                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Video de TikTok descargado' }, { quoted: m });
+                    await execAsync(`yt-dlp -f mp4 -o "${outputVideo}" "${q}"`);
+                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Video de TikTok' }, { quoted: m });
                     await unlink(outputVideo).catch(() => {});
                 } catch (err) {
-                    console.error('Error en .tt:', err);
-                    await reply('Error al descargar el video de TikTok. Revisa el enlace.');
+                    await reply('Error al descargar de TikTok.');
                 }
+                return;
             }
 
             // === INSTAGRAM (.ig) ===
             if (command === 'ig') {
-                if (!q) return reply('Ingresa el enlace de Instagram.\nEjemplo: .ig https://www.instagram.com/...');
+                if (!q) return reply('Ingresa el enlace de Instagram.');
                 try {
                     await reply('Descargando contenido de Instagram...');
                     const outputVideo = path.join(process.cwd(), `ig_${Date.now()}.mp4`);
-                    await execAsync(`yt-dlp -f b -o "${outputVideo}" "${q}"`);
-                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Contenido de Instagram descargado' }, { quoted: m });
+                    await execAsync(`yt-dlp -f mp4 -o "${outputVideo}" "${q}"`);
+                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Contenido de Instagram' }, { quoted: m });
                     await unlink(outputVideo).catch(() => {});
                 } catch (err) {
-                    console.error('Error en .ig:', err);
-                    await reply('Error al descargar de Instagram. Revisa el enlace.');
+                    await reply('Error al descargar de Instagram.');
                 }
+                return;
             }
 
             // === FACEBOOK (.fb) ===
             if (command === 'fb') {
-                if (!q) return reply('Ingresa el enlace de Facebook.\nEjemplo: .fb https://www.facebook.com/...');
+                if (!q) return reply('Ingresa el enlace de Facebook.');
                 try {
                     await reply('Descargando video de Facebook...');
                     const outputVideo = path.join(process.cwd(), `fb_${Date.now()}.mp4`);
-                    await execAsync(`yt-dlp -f b -o "${outputVideo}" "${q}"`);
-                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Video de Facebook descargado' }, { quoted: m });
+                    await execAsync(`yt-dlp -f mp4 -o "${outputVideo}" "${q}"`);
+                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Video de Facebook' }, { quoted: m });
                     await unlink(outputVideo).catch(() => {});
                 } catch (err) {
-                    console.error('Error en .fb:', err);
-                    await reply('Error al descargar de Facebook. Revisa el enlace.');
+                    await reply('Error al descargar de Facebook.');
                 }
+                return;
             }
 
             // === REVELAR ===
@@ -452,9 +525,9 @@ async function startBot(): Promise<void> {
                     const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
                     if (!quotedMsg) return reply('Responde a un mensaje de ver una sola vez con .revelar');
 
-                    const viewOnceObj = quotedMsg.viewOnceMessage || 
-                                        quotedMsg.viewOnceMessageV2 || 
-                                        quotedMsg.viewOnceMessageV2Extension || 
+                    const viewOnceObj = quotedMsg.viewOnceMessage ||
+                                        quotedMsg.viewOnceMessageV2 ||
+                                        quotedMsg.viewOnceMessageV2Extension ||
                                         quotedMsg.ephemeralMessage?.message?.viewOnceMessage ||
                                         quotedMsg.ephemeralMessage?.message?.viewOnceMessageV2;
 
@@ -464,28 +537,26 @@ async function startBot(): Promise<void> {
                         if (quotedMsg.imageMessage || quotedMsg.videoMessage) {
                             actualMessage = quotedMsg;
                         } else {
-                            return reply('El mensaje al que respondiste no contiene contenido multimedia de ver una sola vez.');
+                            return reply('El mensaje al que respondiste no contiene contenido multimedia.');
                         }
                     }
 
                     const targetKey = { message: actualMessage, key: { remoteJid: sender } };
 
                     await reply('Revelando contenido...');
-                    const buffer = await downloadMediaMessage(targetKey as any, 'buffer', {}, { 
-                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage 
+                    const buffer = await downloadMediaMessage(targetKey, 'buffer', {}, {
+                        logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
                     });
 
                     if (actualMessage.imageMessage) {
                         await sock.sendMessage(sender, { image: buffer, caption: 'Contenido revelado' }, { quoted: m });
                     } else if (actualMessage.videoMessage) {
                         await sock.sendMessage(sender, { video: buffer, caption: 'Contenido revelado' }, { quoted: m });
-                    } else {
-                        await reply('No se pudo identificar el tipo de archivo multimedia.');
                     }
                 } catch (err) {
                     console.error('Error en .revelar:', err);
-                    await reply('No se pudo revelar el contenido multimedia.');
                 }
+                return;
             }
 
         } catch (error) {
