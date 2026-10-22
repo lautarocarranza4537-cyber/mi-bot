@@ -57,17 +57,12 @@ async function startBot() {
     phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
     if (!sock.authState.creds.registered) {
-        if (!phoneNumber) {
-            console.log('\nCONFIGURACION DE EMPAREJAMIENTO');
-            phoneNumber = await askQuestion('Ingresa tu numero de WhatsApp (ej: 549351XXXXXXXX): ');
-            phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-        }
+        console.log('\nEsperando estabilizacion de red en Render...');
 
-        try { rl.close(); } catch {}
-        console.log('Conectando y solicitando codigo de emparejamiento para:', phoneNumber);
-
+        // Tiempo de espera de 8 segundos para evitar rechazos de WhatsApp
         setTimeout(async () => {
             try {
+                console.log('Solicitando codigo para:', phoneNumber);
                 let code = await sock.requestPairingCode(phoneNumber);
                 code = code?.match(/.{1,4}/g)?.join('-') || code;
                 console.log(`\n========================================`);
@@ -76,7 +71,7 @@ async function startBot() {
             } catch (err) {
                 console.error('Error al generar codigo:', err);
             }
-        }, 3000);
+        }, 8000);
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -269,7 +264,7 @@ async function startBot() {
                     const outputPath = path.join(process.cwd(), `${tempName}.webp`);
 
                     await writeFile(inputPath, buffer);
-                    await execAsync(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -y "${outputPath}"`);
+                    await execAsync(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-ih)/2:(oh-ih)/2:color=0x00000000" -y "${outputPath}"`);
 
                     await sock.sendMessage(sender, { sticker: { url: outputPath } }, { quoted: m });
                     await unlink(inputPath).catch(() => {});
