@@ -7,7 +7,6 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import http from 'http';
-import ytdl from '@distube/ytdl-core';
 
 // Servidor Web HTTP para evitar el "Timed Out" de Render
 const PORT = process.env.PORT || 3000;
@@ -292,40 +291,97 @@ async function startBot() {
                 return;
             }
 
-            // === COMANDO PLAY ACTIVO PARA TODOS (PERO OCULTO EN MENÚ) ===
+            // === COMANDO PLAY USANDO LA API DE TU AMIGO ===
             if (command === 'play') {
                 await react('🫰');
-
-                if (!q) return reply('Ingresa un enlace directo de YouTube.\nEjemplo: `.play https://www.youtube.com/watch?v=dQw4w9WgXcQ`');
+                if (!q) return reply('Escribe el nombre o enlace de lo que deseas buscar en YouTube.\nEjemplo: `.play lofi hip hop`');
 
                 try {
-                    if (!ytdl.validateURL(q) && !ytdl.isValidURL(q)) {
-                        return reply('Por el momento ingresa un enlace valido de YouTube para procesar el audio.');
+                    let videoUrl = q;
+
+                    // Si no es un link directo, buscamos usando la API de búsqueda
+                    if (!q.startsWith('http://') && !q.startsWith('https://')) {
+                        await reply('🔍 Buscando en YouTube...');
+                        const searchRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
+                        const searchData = await searchRes.json();
+                        
+                        // Adaptamos según el formato que devuelva la API de búsqueda
+                        videoUrl = searchData.url || searchData.results?.[0]?.url || searchData[0]?.url;
+                        if (!videoUrl) return reply('❌ No se encontraron resultados para tu búsqueda.');
                     }
 
-                    await reply('📥 Procesando audio en streaming...');
+                    await reply('📥 Procesando audio con la API...');
 
-                    const stream = ytdl(q, {
-                        filter: 'audioonly',
-                        quality: 'highestaudio',
-                        highWaterMark: 1 << 25
+                    // Solicitamos a la API el link de descarga en audio
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            url: videoUrl,
+                            type: 'audio', // Cambiar a 'video' si quieres descargar video
+                            upload: false
+                        })
                     });
 
+                    const data = await apiRes.json();
+                    const downloadUrl = data.downloadUrl || data.url || data.result;
+
+                    if (!downloadUrl) {
+                        return reply(`❌ Error: La API no devolvió un enlace válido.\nRespuesta: ${JSON.stringify(data)}`);
+                    }
+
                     await sock.sendMessage(sender, { 
-                        audio: { stream }, 
+                        audio: { url: downloadUrl }, 
                         mimetype: 'audio/mp4', 
                         ptt: false 
                     }, { quoted: m });
 
                 } catch (err) {
-                    console.error('Error en .play:', err);
-                    await reply(`❌ Error al procesar audio: ${err.message || err}`);
+                    console.error('Error en .play con API:', err);
+                    await reply(`❌ Error al conectar con la API: ${err.message}`);
+                }
+                return;
+            }
+
+            // === COMANDO VIDEO USANDO LA API ===
+            if (command === 'video') {
+                await react('🫰');
+                if (!q) return reply('Escribe el enlace de YouTube del video.\nEjemplo: `.video https://www.youtube.com/watch?v=...`');
+
+                try {
+                    await reply('📥 Procesando video con la API...');
+
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            url: q,
+                            type: 'video',
+                            upload: false
+                        })
+                    });
+
+                    const data = await apiRes.json();
+                    const downloadUrl = data.downloadUrl || data.url || data.result;
+
+                    if (!downloadUrl) {
+                        return reply(`❌ Error de la API de video: ${JSON.stringify(data)}`);
+                    }
+
+                    await sock.sendMessage(sender, { 
+                        video: { url: downloadUrl }, 
+                        caption: 'Aquí tienes tu video' 
+                    }, { quoted: m });
+
+                } catch (err) {
+                    console.error('Error en .video:', err);
+                    await reply(`❌ Error: ${err.message}`);
                 }
                 return;
             }
 
             // === AVISO DE MANTENIMIENTO PARA OTRAS DESCARGAS ===
-            if (['play2', 'video', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
+            if (['play2', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
                 await react('🫰');
                 await reply('⚠️ Las funciones de descarga estan en mantenimiento temporal.');
                 return;
