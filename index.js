@@ -302,53 +302,25 @@ async function startBot() {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
                 try {
-                    let targetUrl = q;
-                    let searchInfo = null;
+                    await reply('🔍 Buscando e identificando contenido...');
 
-                    await reply('🔍 Buscando contenido...');
+                    const apiRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
+                    const data = await apiRes.json();
 
-                    if (!q.startsWith('http://') && !q.startsWith('https://')) {
-                        const searchRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
-                        const searchData = await searchRes.json();
-                        
-                        let item = null;
-                        if (Array.isArray(searchData) && searchData.length > 0) {
-                            item = searchData[0];
-                        } else if (searchData.results && searchData.results.length > 0) {
-                            item = searchData.results[0];
-                        } else if (searchData.data && searchData.data.length > 0) {
-                            item = searchData.data[0];
-                        } else if (typeof searchData === 'object') {
-                            item = searchData;
-                        }
+                    const item = Array.isArray(data) ? data[0] : (data.results?.[0] || data.data?.[0] || data);
 
-                        if (!item || (!item.url && !item.link && !item.id)) {
-                            return reply('❌ No se encontraron resultados para la búsqueda.');
-                        }
+                    if (!item) return reply('❌ No se encontraron resultados para la búsqueda.');
 
-                        targetUrl = item.url || item.link || (item.id ? `https://www.youtube.com/watch?v=${item.id}` : null);
-                        searchInfo = item;
-                    }
+                    const downloadUrl = item.downloadUrl || item.download || item.url || item.link;
+                    if (!downloadUrl) return reply('❌ No se pudo extraer la URL de descarga de la API.');
 
                     const typeMedia = command === 'play' ? 'audio' : 'video';
-                    await reply(`📥 Procesando ${typeMedia}...`);
-
-                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: targetUrl, type: typeMedia, upload: false })
-                    });
-                    const data = await apiRes.json();
-                    
-                    const downloadUrl = data.downloadUrl || data.url || data.result?.url || data.result;
-                    if (!downloadUrl) return reply('❌ No se pudo obtener el enlace de descarga.');
-
-                    const title = data.title || data.meta?.title || searchInfo?.title || 'Canción de YouTube';
-                    const author = data.author || data.channel || data.meta?.author || searchInfo?.author?.name || searchInfo?.channel || 'YouTube Content';
-                    const duration = data.duration || data.lengthSeconds || searchInfo?.duration || searchInfo?.timestamp || 'N/A';
-                    const views = data.views || data.viewCount || searchInfo?.views || searchInfo?.viewCount || 'N/A';
-                    const likes = data.likes || data.likeCount || searchInfo?.likes || 'N/A';
-                    const thumbnail = data.thumbnail || data.thumb || data.image || searchInfo?.thumbnail || searchInfo?.image || 'https://i.imgur.com/3ZQ6316.jpeg';
+                    const title = item.title || 'Canción de YouTube';
+                    const author = item.author?.name || item.author || item.channel || 'YouTube Content';
+                    const duration = item.duration || item.timestamp || 'N/A';
+                    const views = item.views || item.viewCount || 'N/A';
+                    const likes = item.likes || 'N/A';
+                    const thumbnail = item.thumbnail || item.image || item.thumb || 'https://i.imgur.com/3ZQ6316.jpeg';
 
                     const infoCaption = `🎵 *INFORMACIÓN DE LA CANCIÓN*
 📌 *Título:* ${title}
@@ -356,7 +328,7 @@ async function startBot() {
 ⏱️ *Duración:* ${duration}
 👁️ *Vistas:* ${views}
 👍 *Likes:* ${likes}
-🔗 *Link:* ${targetUrl}`;
+🔗 *Link:* ${item.url || item.link || q}`;
 
                     try {
                         await sock.sendMessage(sender, { image: { url: thumbnail }, caption: infoCaption }, { quoted: m });
