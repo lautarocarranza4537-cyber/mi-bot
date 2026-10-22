@@ -6,6 +6,16 @@ import { writeFile, readFile, unlink } from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import http from 'http';
+
+// Servidor Web HTTP para evitar el "Timed Out" de Render
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot activo y funcionando 24/7');
+}).listen(PORT, () => {
+    console.log(`Servidor HTTP activo escuchando en el puerto ${PORT}`);
+});
 
 const execAsync = promisify(exec);
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -109,7 +119,6 @@ async function startBot() {
                 });
             };
 
-            // Validacion de prefijos (. o , o +)
             if (!text.startsWith('.') && !text.startsWith(',') && !text.startsWith('+')) return;
 
             const args = text.slice(1).trim().split(/ +/);
