@@ -19,7 +19,6 @@ http.createServer((req, res) => {
 
 const execAsync = promisify(exec);
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const askQuestion = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 const BANNER_FILE = path.join(process.cwd(), 'banner.json');
 
@@ -292,7 +291,7 @@ async function startBot() {
                 return;
             }
 
-            // === MENSALISTAS Y AVISO PARA COMANDOS DE DESCARGAS ===
+            // === AVISO PARA DESCARGAS ===
             if (['play', 'play2', 'video', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
                 await react('🫰');
                 await reply('⚠️ Las funciones de descarga estan en mantenimiento temporal. Se reestableceran pronto.');
