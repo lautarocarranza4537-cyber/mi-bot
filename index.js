@@ -53,12 +53,18 @@ async function startBot() {
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
-    // Número configurado por defecto para Render / Servidores Nube
     let phoneNumber = process.env.PHONE_NUMBER || "5493513157041";
     phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
     if (!sock.authState.creds.registered) {
-        console.log('\nSolicitando codigo de emparejamiento para:', phoneNumber);
+        if (!phoneNumber) {
+            console.log('\nCONFIGURACION DE EMPAREJAMIENTO');
+            phoneNumber = await askQuestion('Ingresa tu numero de WhatsApp (ej: 549351XXXXXXXX): ');
+            phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+        }
+
+        try { rl.close(); } catch {}
+        console.log('Conectando y solicitando codigo de emparejamiento para:', phoneNumber);
 
         setTimeout(async () => {
             try {
@@ -70,7 +76,7 @@ async function startBot() {
             } catch (err) {
                 console.error('Error al generar codigo:', err);
             }
-        }, 4000);
+        }, 3000);
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -366,7 +372,7 @@ async function startBot() {
                 return;
             }
 
-            // === PLAY2 (VIDEO/SHORTS 720P BLINDADO SIN LÍMITES) ===
+            // === PLAY2 (VIDEO/SHORTS EN 720P) ===
             if (command === 'play2') {
                 await react('🫰');
                 if (!q) return reply('Ingresa el nombre, link o Short de YouTube.\nEjemplo: .play2 https://youtube.com/shorts/...');
@@ -383,7 +389,7 @@ async function startBot() {
 
                     const outputVideo = path.join(process.cwd(), `play2_${Date.now()}.mp4`);
 
-                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --recode-video mp4 -o "${outputVideo}" "${cleanUrl}"`);
+                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "b[height<=720]/best[height<=720]/best" -o "${outputVideo}" "${cleanUrl}"`);
 
                     await sock.sendMessage(sender, { 
                         video: { url: outputVideo }, 
@@ -393,7 +399,7 @@ async function startBot() {
                     await unlink(outputVideo).catch(() => {});
                 } catch (err) {
                     console.error('Error detallado en .play2:', err);
-                    await reply('❌ Error al descargar el video o Short.');
+                    await reply('Error al descargar el video o Short.');
                 }
                 return;
             }
@@ -408,7 +414,7 @@ async function startBot() {
                     await reply('Descargando video...');
                     const outputVideo = path.join(process.cwd(), `video_${Date.now()}.mp4`);
                     
-                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo+bestaudio/best" --recode-video mp4 -o "${outputVideo}" "${q}"`);
+                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "b/best" -o "${outputVideo}" "${q}"`);
 
                     await sock.sendMessage(sender, { 
                         video: { url: outputVideo }, 
