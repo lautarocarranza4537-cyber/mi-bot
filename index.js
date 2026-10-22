@@ -184,7 +184,7 @@ async function startBot() {
                 return;
             }
 
-            // === MENU COMPLETO ===
+            // === MENÚ (SOLO CON GEMINI Y SISTEMA LIMPIO) ===
             if (command === 'menu' || command === 'help') {
                 await react('🫰');
                 const menuText = `*MENÚ DE COMANDOS COMPLETO*
@@ -197,9 +197,6 @@ async function startBot() {
 
 *INTELIGENCIA ARTIFICIAL*
 • \`.ia\` / \`.gemini\` ➔ *Consultar a Gemini.*
-• \`.qwen\` ➔ *Consultar a Qwen IA.*
-• \`.deepseek\` ➔ *Consultar a DeepSeek.*
-• \`.dphn\` ➔ *Consultar a DPHN.*
 
 *MULTIMEDIA Y STICKERS*
 • \`.s\` ➔ *Crear sticker.*
@@ -207,9 +204,9 @@ async function startBot() {
 • \`.revelar\` ➔ *Ver fotos/videos de una sola vez.*
 
 *DESCARGAS CON API*
-• \`.play\` ➔ *Audio de YouTube + Info Completa.*
-• \`.video\` ➔ *Video de YouTube + Info Completa.*
-• \`.tt\` ➔ *Video o Búsqueda TikTok (5 videos).*
+• \`.play\` ➔ *Audio de YouTube + Tarjeta.*
+• \`.video\` ➔ *Video de YouTube + Tarjeta.*
+• \`.tt\` ➔ *TikTok (Enlace o 5 resultados por nombre).*
 • \`.ig\` ➔ *Instagram.*
 • \`.fb\` ➔ *Facebook.*
 • \`.spotify\` ➔ *Música de Spotify.*
@@ -269,7 +266,7 @@ async function startBot() {
                 return;
             }
 
-            // === DESCARGAS YOUTUBE AUDIO/VIDEO CON METADATOS EXTRAÍDOS AL MÁXIMO ===
+            // === DESCARGAS YOUTUBE (.play / .video - CORREGIDO BÚSQUEDA Y ERROR 403) ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
@@ -277,22 +274,36 @@ async function startBot() {
                     let targetUrl = q;
                     let searchInfo = null;
 
-                    await reply('🔍 Buscando e identificando contenido...');
+                    await reply('🔍 Buscando contenido...');
 
+                    // Búsqueda por texto si no es URL
                     if (!q.startsWith('http://') && !q.startsWith('https://')) {
                         const searchRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
                         const searchData = await searchRes.json();
                         
-                        const item = Array.isArray(searchData) ? searchData[0] : (searchData.results?.[0] || searchData);
-                        if (!item || (!item.url && !item.link)) return reply('❌ No se encontraron resultados para la búsqueda.');
+                        let item = null;
+                        if (Array.isArray(searchData) && searchData.length > 0) {
+                            item = searchData[0];
+                        } else if (searchData.results && searchData.results.length > 0) {
+                            item = searchData.results[0];
+                        } else if (searchData.data && searchData.data.length > 0) {
+                            item = searchData.data[0];
+                        } else if (typeof searchData === 'object') {
+                            item = searchData;
+                        }
 
-                        targetUrl = item.url || item.link;
+                        if (!item || (!item.url && !item.link && !item.id)) {
+                            return reply('❌ No se encontraron resultados para la búsqueda.');
+                        }
+
+                        targetUrl = item.url || item.link || (item.id ? `https://www.youtube.com/watch?v=${item.id}` : null);
                         searchInfo = item;
                     }
 
                     const typeMedia = command === 'play' ? 'audio' : 'video';
                     await reply(`📥 Procesando ${typeMedia}...`);
 
+                    // Petición a la API sin reusar caché para evitar Error 403
                     const apiRes = await fetch('https://esdeath-api.onrender.com/api/youtube', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -301,14 +312,14 @@ async function startBot() {
                     const data = await apiRes.json();
                     
                     const downloadUrl = data.downloadUrl || data.url || data.result?.url || data.result;
-                    if (!downloadUrl) return reply('❌ No se pudo extraer la URL de descarga.');
+                    if (!downloadUrl) return reply('❌ No se pudo obtener el enlace de descarga de la API.');
 
-                    // Extracción profunda en caso de que vengan anidados en meta, details o result
-                    const title = data.title || data.meta?.title || data.details?.title || searchInfo?.title || 'Canción/Video de YouTube';
-                    const author = data.author || data.channel || data.meta?.author || data.meta?.channel || searchInfo?.author?.name || searchInfo?.channel || 'YouTube Content';
-                    const duration = data.duration || data.lengthSeconds || data.meta?.duration || searchInfo?.duration || searchInfo?.timestamp || 'N/A';
-                    const views = data.views || data.viewCount || data.meta?.views || searchInfo?.views || searchInfo?.viewCount || 'N/A';
-                    const likes = data.likes || data.likeCount || data.meta?.likes || searchInfo?.likes || 'N/A';
+                    // Extraer todos los campos posibles de la API de Jinn
+                    const title = data.title || data.meta?.title || searchInfo?.title || 'Canción de YouTube';
+                    const author = data.author || data.channel || data.meta?.author || searchInfo?.author?.name || searchInfo?.channel || 'YouTube Content';
+                    const duration = data.duration || data.lengthSeconds || searchInfo?.duration || searchInfo?.timestamp || 'N/A';
+                    const views = data.views || data.viewCount || searchInfo?.views || searchInfo?.viewCount || 'N/A';
+                    const likes = data.likes || data.likeCount || searchInfo?.likes || 'N/A';
                     const thumbnail = data.thumbnail || data.thumb || data.image || searchInfo?.thumbnail || searchInfo?.image || 'https://i.imgur.com/3ZQ6316.jpeg';
 
                     const infoCaption = `🎵 *INFORMACIÓN DE LA CANCIÓN*
@@ -319,14 +330,12 @@ async function startBot() {
 👍 *Likes:* ${likes}
 🔗 *Link:* ${targetUrl}`;
 
-                    // Enviar tarjeta
                     try {
                         await sock.sendMessage(sender, { image: { url: thumbnail }, caption: infoCaption }, { quoted: m });
                     } catch {
                         await reply(infoCaption);
                     }
 
-                    // Enviar multimedia
                     if (typeMedia === 'audio') {
                         await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
                     } else {
@@ -338,12 +347,11 @@ async function startBot() {
                 return;
             }
 
-            // === TIKTOK (.tt / .tiktok - Soporte de Enlace Directo o Búsqueda de 5 Videos) ===
+            // === TIKTOK (.tt / .tiktok) ===
             if (command === 'tt' || command === 'tiktok') {
                 await react('🫰');
-                if (!q) return reply('Ingresa el nombre de un video o un enlace de TikTok.');
+                if (!q) return reply('Ingresa el nombre de un video o enlace de TikTok.');
                 try {
-                    // Si el usuario mandó un enlace de TikTok
                     if (q.startsWith('http://') || q.startsWith('https://')) {
                         await reply('📥 Procesando TikTok...');
                         const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
@@ -359,7 +367,6 @@ async function startBot() {
                         return;
                     }
 
-                    // Si es BÚSQUEDA POR TEXTO -> Busca y descarga los primeros 5 videos
                     await reply(`🔍 Buscando los primeros 5 videos de TikTok para: "${q}"...`);
                     const searchRes = await fetch(`https://esdeath-api.onrender.com/api/tiktok/search?keyword=${encodeURIComponent(q)}&count=5`);
                     const searchData = await searchRes.json();
@@ -367,12 +374,11 @@ async function startBot() {
                     const items = Array.isArray(searchData) ? searchData : (searchData.results || searchData.data || searchData.videos || []);
                     const top5 = items.slice(0, 5);
 
-                    if (top5.length === 0) return reply('❌ No se encontraron resultados en TikTok para esa búsqueda.');
+                    if (top5.length === 0) return reply('❌ No se encontraron resultados en TikTok.');
 
                     for (let i = 0; i < top5.length; i++) {
                         const item = top5[i];
                         const videoPageUrl = item.url || item.link || item.video_url;
-
                         if (!videoPageUrl) continue;
 
                         const apiRes = await fetch('https://esdeath-api.onrender.com/api/tiktok', {
@@ -384,7 +390,7 @@ async function startBot() {
                         const downloadUrl = data.video || data.downloadUrl || data.url || data.result?.url || data.result;
 
                         if (downloadUrl) {
-                            const desc = item.title || item.desc || data.title || `Video de TikTok #${i + 1}`;
+                            const desc = item.title || item.desc || data.title || `Video #${i + 1}`;
                             await sock.sendMessage(sender, { 
                                 video: { url: downloadUrl }, 
                                 caption: `🎬 *Resultado ${i + 1} de 5*\n📝 *Descripción:* ${desc}` 
@@ -414,7 +420,7 @@ async function startBot() {
                     if (!downloadUrl) return reply('❌ Error al extraer contenido de Instagram.');
                     await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu contenido de Instagram' }, { quoted: m });
                 } catch (err) {
-                    await reply(`❌ Error: ${err.message}`);
+                    await reply(`❌ Error en Instagram: ${err.message}`);
                 }
                 return;
             }
@@ -436,7 +442,7 @@ async function startBot() {
                     if (!downloadUrl) return reply('❌ Error al obtener el video de Facebook.');
                     await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: 'Aquí tienes tu video de Facebook' }, { quoted: m });
                 } catch (err) {
-                    await reply(`❌ Error: ${err.message}`);
+                    await reply(`❌ Error en Facebook: ${err.message}`);
                 }
                 return;
             }
@@ -458,7 +464,7 @@ async function startBot() {
                     if (!downloadUrl) return reply('❌ Error al obtener audio de Spotify.');
                     await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
                 } catch (err) {
-                    await reply(`❌ Error: ${err.message}`);
+                    await reply(`❌ Error en Spotify: ${err.message}`);
                 }
                 return;
             }
@@ -476,39 +482,28 @@ async function startBot() {
                     if (!imageUrl) return reply('❌ No se encontraron imágenes.');
                     await sock.sendMessage(sender, { image: { url: imageUrl }, caption: `Resultado para: *${q}*` }, { quoted: m });
                 } catch (err) {
-                    await reply(`❌ Error: ${err.message}`);
+                    await reply(`❌ Error en Pinterest: ${err.message}`);
                 }
                 return;
             }
 
-            // === IA (GEMINI, QWEN, DEEPSEEK, DPHN) ===
-            if (['ia', 'gemini', 'qwen', 'deepseek', 'dphn'].includes(command)) {
+            // === IA EXCLUSIVA: GEMINI (.ia / .gemini) ===
+            if (command === 'ia' || command === 'gemini') {
                 await react('🫰');
-                if (!q) return reply('Escribe tu pregunta para la IA.');
+                if (!q) return reply('Escribe tu pregunta para Gemini.');
                 try {
                     await reply('🧠 Pensando...');
-                    let endpoint = command === 'ia' ? 'gemini' : command;
-                    let bodyPayload = { prompt: q };
-
-                    if (endpoint === 'gemini') {
-                        bodyPayload = { prompt: q, chatId: null, model: 'flash-lite' };
-                    } else if (endpoint === 'dphn') {
-                        bodyPayload = { prompt: q, template: 'logical' };
-                    } else if (endpoint === 'deepseek') {
-                        bodyPayload = { prompt: q, chatId: null, parentId: null };
-                    }
-
-                    const apiRes = await fetch(`https://esdeath-api.onrender.com/api/${endpoint}`, {
+                    const apiRes = await fetch('https://esdeath-api.onrender.com/api/gemini', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(bodyPayload)
+                        body: JSON.stringify({ prompt: q, chatId: null, model: 'flash-lite' })
                     });
                     const data = await apiRes.json();
                     const answer = data.response || data.text || data.result;
 
-                    await reply(answer || 'Sin respuesta de la IA.');
+                    await reply(answer || 'Sin respuesta de Gemini.');
                 } catch (err) {
-                    await reply(`❌ Error en IA: ${err.message}`);
+                    await reply(`❌ Error en Gemini: ${err.message}`);
                 }
                 return;
             }
