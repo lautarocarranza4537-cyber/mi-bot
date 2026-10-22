@@ -53,16 +53,15 @@ async function startBot() {
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
+    // Número configurado por defecto para Render / Servidores Nube
     let phoneNumber = process.env.PHONE_NUMBER || "5493513157041";
     phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
     if (!sock.authState.creds.registered) {
-        console.log('\nEsperando estabilizacion de red en Render...');
+        console.log('\nSolicitando codigo de emparejamiento para:', phoneNumber);
 
-        // Tiempo de espera de 8 segundos para evitar rechazos de WhatsApp
         setTimeout(async () => {
             try {
-                console.log('Solicitando codigo para:', phoneNumber);
                 let code = await sock.requestPairingCode(phoneNumber);
                 code = code?.match(/.{1,4}/g)?.join('-') || code;
                 console.log(`\n========================================`);
@@ -71,7 +70,7 @@ async function startBot() {
             } catch (err) {
                 console.error('Error al generar codigo:', err);
             }
-        }, 8000);
+        }, 4000);
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -264,7 +263,7 @@ async function startBot() {
                     const outputPath = path.join(process.cwd(), `${tempName}.webp`);
 
                     await writeFile(inputPath, buffer);
-                    await execAsync(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-ih)/2:(oh-ih)/2:color=0x00000000" -y "${outputPath}"`);
+                    await execAsync(`ffmpeg -i "${inputPath}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -y "${outputPath}"`);
 
                     await sock.sendMessage(sender, { sticker: { url: outputPath } }, { quoted: m });
                     await unlink(inputPath).catch(() => {});
@@ -367,7 +366,7 @@ async function startBot() {
                 return;
             }
 
-            // === PLAY2 (VIDEO/SHORTS EN 720P) ===
+            // === PLAY2 (VIDEO/SHORTS 720P BLINDADO SIN LÍMITES) ===
             if (command === 'play2') {
                 await react('🫰');
                 if (!q) return reply('Ingresa el nombre, link o Short de YouTube.\nEjemplo: .play2 https://youtube.com/shorts/...');
@@ -384,7 +383,7 @@ async function startBot() {
 
                     const outputVideo = path.join(process.cwd(), `play2_${Date.now()}.mp4`);
 
-                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "b[height<=720]/best[height<=720]/best" -o "${outputVideo}" "${cleanUrl}"`);
+                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --recode-video mp4 -o "${outputVideo}" "${cleanUrl}"`);
 
                     await sock.sendMessage(sender, { 
                         video: { url: outputVideo }, 
@@ -394,7 +393,7 @@ async function startBot() {
                     await unlink(outputVideo).catch(() => {});
                 } catch (err) {
                     console.error('Error detallado en .play2:', err);
-                    await reply('Error al descargar el video o Short.');
+                    await reply('❌ Error al descargar el video o Short.');
                 }
                 return;
             }
@@ -409,7 +408,7 @@ async function startBot() {
                     await reply('Descargando video...');
                     const outputVideo = path.join(process.cwd(), `video_${Date.now()}.mp4`);
                     
-                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "b/best" -o "${outputVideo}" "${q}"`);
+                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo+bestaudio/best" --recode-video mp4 -o "${outputVideo}" "${q}"`);
 
                     await sock.sendMessage(sender, { 
                         video: { url: outputVideo }, 
