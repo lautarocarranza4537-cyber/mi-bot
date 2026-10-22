@@ -297,27 +297,32 @@ async function startBot() {
                 return;
             }
 
-            // === DESCARGAS YOUTUBE (.play / .video) ===
+            // === DESCARGAS YOUTUBE (.play / .video - EXTRACCIÓN ROBUSTA Y CONSOLA) ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
                 try {
-                    await reply('🔍 Buscando e identificando contenido...');
+                    await reply('🔍 Buscando contenido...');
 
                     const apiRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
                     const data = await apiRes.json();
 
-                    const item = Array.isArray(data) ? data[0] : (data.results?.[0] || data.data?.[0] || data);
+                    console.log("Respuesta de la API de YouTube:", JSON.stringify(data, null, 2));
+
+                    const item = Array.isArray(data) ? data[0] : (data.results?.[0] || data.data?.[0] || data.result?.[0] || data);
 
                     if (!item) return reply('❌ No se encontraron resultados para la búsqueda.');
 
-                    const downloadUrl = item.downloadUrl || item.download || item.url || item.link;
-                    if (!downloadUrl) return reply('❌ No se pudo extraer la URL de descarga de la API.');
+                    const downloadUrl = item.downloadUrl || item.download || item.url || item.link || item.audio || item.video || item.result || item.dl || item.file;
+                    
+                    if (!downloadUrl) {
+                        return reply('❌ No se pudo extraer la URL. Revisa la consola de Termux para ver el formato exacto.');
+                    }
 
                     const typeMedia = command === 'play' ? 'audio' : 'video';
-                    const title = item.title || 'Canción de YouTube';
+                    const title = item.title || item.name || 'Canción de YouTube';
                     const author = item.author?.name || item.author || item.channel || 'YouTube Content';
-                    const duration = item.duration || item.timestamp || 'N/A';
+                    const duration = item.duration || item.timestamp || item.ago || 'N/A';
                     const views = item.views || item.viewCount || 'N/A';
                     const likes = item.likes || 'N/A';
                     const thumbnail = item.thumbnail || item.image || item.thumb || 'https://i.imgur.com/3ZQ6316.jpeg';
