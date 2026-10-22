@@ -12,7 +12,6 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const askQuestion = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 const BANNER_FILE = path.join(process.cwd(), 'banner.json');
-const API_BASE = 'https://esdeath-api.onrender.com';
 
 async function getStoredBanner() {
     try {
@@ -73,7 +72,7 @@ async function startBot() {
                 startBot();
             }
         } else if (connection === 'open') {
-            console.log('Bot conectado y listo.');
+            console.log('Bot conectado y listo para todos los usuarios.');
             try { rl.close(); } catch {}
         }
     });
@@ -83,7 +82,7 @@ async function startBot() {
     sock.ev.on('messages.upsert', async ({ messages }) => {
         try {
             const m = messages[0];
-            if (!m.message) return;
+            if (!m || !m.message) return;
 
             const messageType = Object.keys(m.message)[0];
             let body = '';
@@ -110,6 +109,7 @@ async function startBot() {
                 });
             };
 
+            // Validacion de prefijos (. o , o +)
             if (!text.startsWith('.') && !text.startsWith(',') && !text.startsWith('+')) return;
 
             const args = text.slice(1).trim().split(/ +/);
@@ -142,7 +142,7 @@ async function startBot() {
                 return;
             }
 
-            // === MENU MULTIMEDIA ===
+            // === MENU DE COMANDOS ===
             if (command === 'menu' || command === 'help') {
                 await react('🫰');
                 const menuText = `*MENÚ DE COMANDOS*
@@ -158,13 +158,8 @@ async function startBot() {
 • \`.toimg\` ➔ *Convierte un sticker en formato de imagen.*
 • \`.revelar\` ➔ *Muestra el contenido de fotos o videos de una sola vez.*
 
-*DESCARGAS Y STREAMING (VÍA API)*
-• \`.play\` ➔ *Busca y descarga música.*
-• \`.play2\` ➔ *Descarga video de YouTube.*
-• \`.video\` ➔ *Descarga videos universales.*
-• \`.tt\` ➔ *Descarga videos de TikTok.*
-• \`.ig\` ➔ *Descarga contenido de Instagram.*
-• \`.fb\` ➔ *Descarga videos de Facebook.*`;
+*MODO DESCARGAS*
+• *Mantenimiento temporal de descargas de media.*`;
 
                 const currentBanner = await getStoredBanner();
                 try {
@@ -288,110 +283,10 @@ async function startBot() {
                 return;
             }
 
-            // === PLAY (MÚSICA CON API) ===
-            if (command === 'play') {
+            // === MENSALISTAS Y AVISO PARA COMANDOS DE DESCARGAS ===
+            if (['play', 'play2', 'video', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
                 await react('🫰');
-                if (!q) return reply('Escribe el nombre o link de la cancion.');
-                try {
-                    await reply('Procesando solicitud mediante API...');
-                    const res = await fetch(`${API_BASE}/api/play?text=${encodeURIComponent(q)}`);
-                    const data = await res.json();
-
-                    const audioUrl = data.url || data.result?.url || data.download || data.result;
-                    if (!audioUrl) return reply('La API no devolvio un enlace de audio valido.');
-
-                    await sock.sendMessage(sender, { 
-                        audio: { url: audioUrl }, 
-                        mimetype: 'audio/mp4', 
-                        ptt: false 
-                    }, { quoted: m });
-                } catch (err) {
-                    console.error('Error en .play con API:', err);
-                    await reply('Error al conectar con la API de descargas.');
-                }
-                return;
-            }
-
-            // === PLAY2 / VIDEO (VIDEO CON API) ===
-            if (command === 'play2' || command === 'video') {
-                await react('🫰');
-                if (!q) return reply('Ingresa el nombre o enlace del video.');
-                try {
-                    await reply('Descargando video mediante API...');
-                    const res = await fetch(`${API_BASE}/api/ytmp4?url=${encodeURIComponent(q)}`);
-                    const data = await res.json();
-
-                    const videoUrl = data.url || data.result?.url || data.download || data.result;
-                    if (!videoUrl) return reply('La API no devolvio un enlace de video valido.');
-
-                    await sock.sendMessage(sender, { 
-                        video: { url: videoUrl }, 
-                        caption: 'Video descargado con exito.' 
-                    }, { quoted: m });
-                } catch (err) {
-                    console.error('Error en video con API:', err);
-                    await reply('Error al procesar el video desde la API.');
-                }
-                return;
-            }
-
-            // === TIKTOK (.tt CON API) ===
-            if (command === 'tt') {
-                await react('🫰');
-                if (!q || !q.startsWith('http')) return reply('Ingresa un enlace valido de TikTok.');
-                try {
-                    await reply('Descargando de TikTok via API...');
-                    const res = await fetch(`${API_BASE}/api/tiktok?url=${encodeURIComponent(q)}`);
-                    const data = await res.json();
-
-                    const videoUrl = data.url || data.result?.url || data.download || data.result;
-                    if (!videoUrl) return reply('No se pudo obtener el video de TikTok.');
-
-                    await sock.sendMessage(sender, { video: { url: videoUrl }, caption: 'TikTok descargado' }, { quoted: m });
-                } catch (err) {
-                    console.error('Error en .tt con API:', err);
-                    await reply('Error al consultar TikTok en la API.');
-                }
-                return;
-            }
-
-            // === INSTAGRAM (.ig CON API) ===
-            if (command === 'ig') {
-                await react('🫰');
-                if (!q || !q.startsWith('http')) return reply('Ingresa el enlace de Instagram.');
-                try {
-                    await reply('Descargando de Instagram via API...');
-                    const res = await fetch(`${API_BASE}/api/ig?url=${encodeURIComponent(q)}`);
-                    const data = await res.json();
-
-                    const videoUrl = data.url || data.result?.url || data.download || data.result;
-                    if (!videoUrl) return reply('No se pudo obtener el contenido de Instagram.');
-
-                    await sock.sendMessage(sender, { video: { url: videoUrl }, caption: 'Instagram descargado' }, { quoted: m });
-                } catch (err) {
-                    console.error('Error en .ig con API:', err);
-                    await reply('Error al consultar Instagram en la API.');
-                }
-                return;
-            }
-
-            // === FACEBOOK (.fb CON API) ===
-            if (command === 'fb') {
-                await react('🫰');
-                if (!q || !q.startsWith('http')) return reply('Ingresa el enlace de Facebook.');
-                try {
-                    await reply('Descargando de Facebook via API...');
-                    const res = await fetch(`${API_BASE}/api/fb?url=${encodeURIComponent(q)}`);
-                    const data = await res.json();
-
-                    const videoUrl = data.url || data.result?.url || data.download || data.result;
-                    if (!videoUrl) return reply('No se pudo obtener el video de Facebook.');
-
-                    await sock.sendMessage(sender, { video: { url: videoUrl }, caption: 'Facebook descargado' }, { quoted: m });
-                } catch (err) {
-                    console.error('Error en .fb con API:', err);
-                    await reply('Error al consultar Facebook en la API.');
-                }
+                await reply('⚠️ Las funciones de descarga estan en mantenimiento temporal. Se reestableceran pronto.');
                 return;
             }
 
