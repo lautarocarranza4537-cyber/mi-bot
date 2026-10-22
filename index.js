@@ -20,6 +20,8 @@ const execAsync = promisify(exec);
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 const BANNER_FILE = path.join(process.cwd(), 'banner.json');
+let spamInterval = null;
+let spamMedia = null;
 
 async function getStoredBanner() {
     try {
@@ -122,6 +124,61 @@ async function startBot() {
             const args = text.slice(1).trim().split(/ +/);
             const command = args.shift().toLowerCase();
             const q = args.join(' ');
+
+                        // === COMANDO SPAM (.spam / .spam on / .spam off) ===
+            if (command === 'spam') {
+                await react('🫰');
+                const action = args[0]?.toLowerCase();
+
+                if (action === 'on') {
+                    if (spamInterval) return reply('⚠️ El spam ya está activo.');
+                    if (!spamMedia) return reply('❌ Primero debes guardar una imagen o texto respondiendo con .spam');
+
+                    await reply('🚀 *¡ULTRA SPAM INICIADO!* Usa .spam off para detenerlo.');
+
+                    spamInterval = setInterval(async () => {
+                        try {
+                            if (spamMedia.type === 'image') {
+                                await sock.sendMessage(sender, { image: spamMedia.buffer, caption: spamMedia.caption || '' });
+                            } else if (spamMedia.type === 'text') {
+                                await sock.sendMessage(sender, { text: spamMedia.text });
+                            }
+                        } catch (err) {
+                            console.error('Error enviando spam:', err);
+                        }
+                    }, 500);
+
+                    return;
+                }
+
+                if (action === 'off') {
+                    if (!spamInterval) return reply('⚠️ El spam no está activo.');
+                    clearInterval(spamInterval);
+                    spamInterval = null;
+                    return reply('🛑 *¡SPAM DETENIDO DETENIDAMENTE!*');
+                }
+
+                try {
+                    const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
+                    if (quotedMsg && quotedMsg.imageMessage) {
+                        const targetMessage = { message: quotedMsg, key: { remoteJid: sender } };
+                        const buffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
+                            logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage
+                        });
+
+                        spamMedia = { type: 'image', buffer, caption: q || quotedMsg.imageMessage.caption || '' };
+                        return reply('✅ *Imagen guardada en memoria.* Usa .spam on para iniciar el ultra spam.');
+                    } else if (q) {
+                        spamMedia = { type: 'text', text: q };
+                        return reply('✅ *Texto guardado en memoria.* Usa .spam on para iniciar el ultra spam.');
+                    } else {
+                        return reply('❌ Responde a una imagen con .spam o escribe un texto para guardar el contenido.');
+                    }
+                } catch (err) {
+                    return reply(`❌ Error guardando contenido para spam: ${err.message}`);
+                }
+                return;
+            }
 
             // === COMANDO SETBANNER ===
             if (command === 'setbanner') {
