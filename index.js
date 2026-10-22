@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import http from 'http';
+import ytdl from '@distube/ytdl-core';
 
 // Servidor Web HTTP para evitar el "Timed Out" de Render
 const PORT = process.env.PORT || 3000;
@@ -107,6 +108,7 @@ async function startBot() {
             if (!body) return;
             const sender = m.key.remoteJid;
             const text = body.trim();
+            const isOwner = m.key.fromMe || sender.includes("5493513157041");
 
             const reply = async (texto) => {
                 return await sock.sendMessage(sender, { text: texto }, { quoted: m });
@@ -166,8 +168,8 @@ async function startBot() {
 • \`.toimg\` ➔ *Convierte un sticker en formato de imagen.*
 • \`.revelar\` ➔ *Muestra el contenido de fotos o videos de una sola vez.*
 
-*MODO DESCARGAS*
-• *Mantenimiento temporal de descargas de media.*`;
+*MODO DESCARGAS (EN PRUEBA/MANTENIMIENTO)*
+• \`.play\` ➔ *Modo prueba de streaming para Owner.*`;
 
                 const currentBanner = await getStoredBanner();
                 try {
@@ -291,10 +293,46 @@ async function startBot() {
                 return;
             }
 
-            // === AVISO PARA DESCARGAS ===
-            if (['play', 'play2', 'video', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
+            // === PRUEBA DE PLAY CON STREAM EN MEMORIA ===
+            if (command === 'play') {
                 await react('🫰');
-                await reply('⚠️ Las funciones de descarga estan en mantenimiento temporal. Se reestableceran pronto.');
+                
+                if (!isOwner) {
+                    return reply('⚠️ La funcion de descargas esta en prueba exclusiva por el Owner.');
+                }
+
+                if (!q) return reply('Ingresa un enlace directo de YouTube (Ejemplo: .play https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
+
+                try {
+                    if (!ytdl.isValidURL(q)) {
+                        return reply('Por el momento ingresa un enlace valido de YouTube para testear el stream.');
+                    }
+
+                    await reply('📥 Procesando stream directo en memoria...');
+
+                    const stream = ytdl(q, {
+                        filter: 'audioonly',
+                        quality: 'highestaudio',
+                        highWaterMark: 1 << 25
+                    });
+
+                    await sock.sendMessage(sender, { 
+                        audio: { stream }, 
+                        mimetype: 'audio/mp4', 
+                        ptt: false 
+                    }, { quoted: m });
+
+                } catch (err) {
+                    console.error('Error detallado en .play:', err);
+                    await reply(`❌ Error al procesar audio: ${err.message || err}`);
+                }
+                return;
+            }
+
+            // === AVISO DE MANTENIMIENTO PARA OTRAS DESCARGAS ===
+            if (['play2', 'video', 'tt', 'ig', 'fb', 'sc'].includes(command)) {
+                await react('🫰');
+                await reply('⚠️ Las funciones de descarga de video estan en mantenimiento temporal.');
                 return;
             }
 
