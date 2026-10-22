@@ -297,7 +297,7 @@ async function startBot() {
                 return;
             }
 
-            // === DESCARGAS YOUTUBE (.play / .video - EXTRACCIÓN ROBUSTA Y CONSOLA) ===
+                        // === DESCARGAS YOUTUBE (.play / .video - RESPUESTA DIRECTA DE DIAGNÓSTICO) ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
@@ -307,16 +307,17 @@ async function startBot() {
                     const apiRes = await fetch(`https://esdeath-api.onrender.com/api/youtube/search?q=${encodeURIComponent(q)}`);
                     const data = await apiRes.json();
 
-                    console.log("Respuesta de la API de YouTube:", JSON.stringify(data, null, 2));
-
                     const item = Array.isArray(data) ? data[0] : (data.results?.[0] || data.data?.[0] || data.result?.[0] || data);
 
-                    if (!item) return reply('❌ No se encontraron resultados para la búsqueda.');
+                    if (!item) {
+                        return reply(`❌ No se encontraron resultados. La API respondió: ${JSON.stringify(data).slice(0, 300)}`);
+                    }
 
                     const downloadUrl = item.downloadUrl || item.download || item.url || item.link || item.audio || item.video || item.result || item.dl || item.file;
                     
                     if (!downloadUrl) {
-                        return reply('❌ No se pudo extraer la URL. Revisa la consola de Termux para ver el formato exacto.');
+                        const keys = Object.keys(item).join(', ');
+                        return reply(`❌ La API no envió una URL válida de descarga. Propiedades recibidas: [${keys}]`);
                     }
 
                     const typeMedia = command === 'play' ? 'audio' : 'video';
