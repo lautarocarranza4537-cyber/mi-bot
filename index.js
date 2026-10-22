@@ -297,7 +297,7 @@ async function startBot() {
                 return;
             }
 
-                        // === DESCARGAS YOUTUBE (.play / .video - RESPUESTA DIRECTA DE DIAGNÓSTICO) ===
+                                    // === DESCARGAS YOUTUBE (.play / .video - RESPUESTA DIRECTA DE DIAGNÓSTICO) ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
