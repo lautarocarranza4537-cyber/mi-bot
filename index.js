@@ -2,7 +2,7 @@ import makeWASocket, { DisconnectReason, useMultiFileAuthState, downloadMediaMes
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import readline from 'readline';
-import { writeFile, readFile, unlink, stat } from 'fs/promises';
+import { writeFile, readFile, unlink } from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -12,7 +12,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const askQuestion = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 const BANNER_FILE = path.join(process.cwd(), 'banner.json');
-const MAX_AUDIO_BYTES = 20 * 1024 * 1024; // Límite de 20MB para audios
+const API_BASE = 'https://esdeath-api.onrender.com';
 
 async function getStoredBanner() {
     try {
@@ -25,17 +25,6 @@ async function getStoredBanner() {
 
 async function saveStoredBanner(url, type) {
     await writeFile(BANNER_FILE, JSON.stringify({ url, type }));
-}
-
-function formatDuration(seconds) {
-    if (!seconds) return 'Desconocida';
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    if (hrs > 0) {
-        return `${hrs}:${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
-    }
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 }
 
 async function startBot() {
@@ -53,7 +42,6 @@ async function startBot() {
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
-    // Número configurado por defecto para Render / Servidores Nube
     let phoneNumber = process.env.PHONE_NUMBER || "5493513157041";
     phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
 
@@ -122,7 +110,6 @@ async function startBot() {
                 });
             };
 
-            // Validacion de comandos tradicionales (. o , o +)
             if (!text.startsWith('.') && !text.startsWith(',') && !text.startsWith('+')) return;
 
             const args = text.slice(1).trim().split(/ +/);
@@ -171,14 +158,13 @@ async function startBot() {
 • \`.toimg\` ➔ *Convierte un sticker en formato de imagen.*
 • \`.revelar\` ➔ *Muestra el contenido de fotos o videos de una sola vez.*
 
-*DESCARGAS Y STREAMING*
-• \`.play\` ➔ *Busca y descarga música de YouTube (máx. 20MB).*
-• \`.play2\` ➔ *Descarga video o Short de YouTube en calidad 720p.*
-• \`.video\` ➔ *Descarga videos de cualquier aplicación o página web.*
-• \`.sc\` ➔ *Busca y descarga audios desde SoundCloud (máx. 20MB).*
-• \`.tt\` ➔ *Descarga videos de TikTok por enlace directo.*
-• \`.ig\` ➔ *Descarga contenido multimedia de Instagram.*
-• \`.fb\` ➔ *Descarga videos desde Facebook.*`;
+*DESCARGAS Y STREAMING (VÍA API)*
+• \`.play\` ➔ *Busca y descarga música.*
+• \`.play2\` ➔ *Descarga video de YouTube.*
+• \`.video\` ➔ *Descarga videos universales.*
+• \`.tt\` ➔ *Descarga videos de TikTok.*
+• \`.ig\` ➔ *Descarga contenido de Instagram.*
+• \`.fb\` ➔ *Descarga videos de Facebook.*`;
 
                 const currentBanner = await getStoredBanner();
                 try {
@@ -220,7 +206,7 @@ async function startBot() {
                     const isVideo = targetMessage.message?.videoMessage;
 
                     if (!isImage && !isVideo) {
-                        return reply('Responde a una imagen, GIF o video corto con .setbanner para establecerlo como banner.');
+                        return reply('Responde a una imagen, GIF o video corto con .setbanner.');
                     }
 
                     const mime = (isImage || isVideo).mimetype || '';
@@ -302,240 +288,109 @@ async function startBot() {
                 return;
             }
 
-            // === PLAY (MÚSICA CON LÍMITE STRICTO DE 20MB) ===
+            // === PLAY (MÚSICA CON API) ===
             if (command === 'play') {
                 await react('🫰');
-                if (!q) return reply('Escribe el nombre o link de la cancion.\nEjemplo: .play Bad Bunny');
+                if (!q) return reply('Escribe el nombre o link de la cancion.');
                 try {
-                    await reply('Buscando informacion y archivo de audio...');
+                    await reply('Procesando solicitud mediante API...');
+                    const res = await fetch(`${API_BASE}/api/play?text=${encodeURIComponent(q)}`);
+                    const data = await res.json();
 
-                    const querySearch = q.startsWith('http') ? q : `ytsearch1:${q}`;
-                    const jsonCmd = `yt-dlp -j --skip-download "${querySearch}"`;
-                    const { stdout } = await execAsync(jsonCmd);
-                    const info = JSON.parse(stdout.trim().split('\n')[0]);
-
-                    const title = info.title || 'Desconocido';
-                    const channel = info.uploader || info.channel || 'Desconocido';
-                    const duration = formatDuration(info.duration);
-                    const views = info.view_count ? info.view_count.toLocaleString() : 'No disponible';
-                    const likes = info.like_count ? info.like_count.toLocaleString() : 'No disponible';
-                    const uploadDate = info.upload_date ? `${info.upload_date.slice(6,8)}/${info.upload_date.slice(4,6)}/${info.upload_date.slice(0,4)}` : 'Desconocido';
-                    const videoUrl = info.webpage_url || info.url;
-                    const thumbUrl = info.thumbnail;
-
-                    if (info.filesize || info.filesize_approx) {
-                        const estimatedSize = info.filesize || info.filesize_approx;
-                        if (estimatedSize > MAX_AUDIO_BYTES) {
-                            return reply(`El archivo de audio supera el limite permitido de 20MB (Tamaño est.: ${(estimatedSize / (1024*1024)).toFixed(1)}MB). Descarga cancelada.`);
-                        }
-                    }
-
-                    const infoText = `Informacion de la cancion:\n\n` +
-                        `• Nombre: ${title}\n` +
-                        `• Canal / Artista: ${channel}\n` +
-                        `• Duracion: ${duration}\n` +
-                        `• Vistas: ${views}\n` +
-                        `• Likes: ${likes}\n` +
-                        `• Lanzamiento: ${uploadDate}\n` +
-                        `• Link: ${videoUrl}`;
-
-                    const outputAudio = path.join(process.cwd(), `audio_${Date.now()}.mp3`);
-                    await execAsync(`yt-dlp --concurrent-fragments 4 -x --audio-format mp3 -o "${outputAudio}" "${videoUrl}"`);
-
-                    const fileStats = await stat(outputAudio).catch(() => null);
-                    if (fileStats && fileStats.size > MAX_AUDIO_BYTES) {
-                        await unlink(outputAudio).catch(() => {});
-                        return reply(`El audio descargado excede el limite de 20MB (${(fileStats.size / (1024*1024)).toFixed(1)}MB). No se enviara.`);
-                    }
-
-                    if (thumbUrl) {
-                        await sock.sendMessage(sender, {
-                            image: { url: thumbUrl },
-                            caption: infoText
-                        }, { quoted: m });
-                    } else {
-                        await reply(infoText);
-                    }
-
-                    await sock.sendMessage(sender, { audio: { url: outputAudio }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
-                    await unlink(outputAudio).catch(() => {});
-                } catch (err) {
-                    console.error('Error en .play:', err);
-                    await reply('Error al procesar la peticion con yt-dlp.');
-                }
-                return;
-            }
-
-            // === PLAY2 (VIDEO/SHORTS 720P BLINDADO SIN LÍMITES) ===
-            if (command === 'play2') {
-                await react('🫰');
-                if (!q) return reply('Ingresa el nombre, link o Short de YouTube.\nEjemplo: .play2 https://youtube.com/shorts/...');
-                try {
-                    await reply('Buscando y descargando video/short en 720p...');
-
-                    let cleanUrl = q.trim();
-                    if (!cleanUrl.startsWith('http')) {
-                        const jsonCmd = `yt-dlp -j --skip-download "ytsearch1:${cleanUrl}"`;
-                        const { stdout } = await execAsync(jsonCmd);
-                        const info = JSON.parse(stdout.trim().split('\n')[0]);
-                        cleanUrl = info.webpage_url || info.url;
-                    }
-
-                    const outputVideo = path.join(process.cwd(), `play2_${Date.now()}.mp4`);
-
-                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo[height<=720]+bestaudio/best[height<=720]/best" --recode-video mp4 -o "${outputVideo}" "${cleanUrl}"`);
+                    const audioUrl = data.url || data.result?.url || data.download || data.result;
+                    if (!audioUrl) return reply('La API no devolvio un enlace de audio valido.');
 
                     await sock.sendMessage(sender, { 
-                        video: { url: outputVideo }, 
-                        caption: 'Video/Short descargado correctamente en 720p.'
+                        audio: { url: audioUrl }, 
+                        mimetype: 'audio/mp4', 
+                        ptt: false 
                     }, { quoted: m });
-
-                    await unlink(outputVideo).catch(() => {});
                 } catch (err) {
-                    console.error('Error detallado en .play2:', err);
-                    await reply('❌ Error al descargar el video o Short.');
+                    console.error('Error en .play con API:', err);
+                    await reply('Error al conectar con la API de descargas.');
                 }
                 return;
             }
 
-            // === VIDEO (DESCARGA GLOBAL UNIVERSAL SIN LÍMITES) ===
-            if (command === 'video') {
+            // === PLAY2 / VIDEO (VIDEO CON API) ===
+            if (command === 'play2' || command === 'video') {
                 await react('🫰');
-                if (!q || !q.startsWith('http')) {
-                    return reply('Ingresa un enlace valido enviado desde cualquier aplicacion o pagina web.');
-                }
+                if (!q) return reply('Ingresa el nombre o enlace del video.');
                 try {
-                    await reply('Descargando video...');
-                    const outputVideo = path.join(process.cwd(), `video_${Date.now()}.mp4`);
-                    
-                    await execAsync(`yt-dlp --no-check-certificates --geo-bypass --concurrent-fragments 4 -f "bestvideo+bestaudio/best" --recode-video mp4 -o "${outputVideo}" "${q}"`);
+                    await reply('Descargando video mediante API...');
+                    const res = await fetch(`${API_BASE}/api/ytmp4?url=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+
+                    const videoUrl = data.url || data.result?.url || data.download || data.result;
+                    if (!videoUrl) return reply('La API no devolvio un enlace de video valido.');
 
                     await sock.sendMessage(sender, { 
-                        video: { url: outputVideo }, 
-                        caption: 'Video descargado correctamente.' 
+                        video: { url: videoUrl }, 
+                        caption: 'Video descargado con exito.' 
                     }, { quoted: m });
-
-                    await unlink(outputVideo).catch(() => {});
                 } catch (err) {
-                    console.error('Error en .video:', err);
-                    await reply('Error al descargar el video.');
+                    console.error('Error en video con API:', err);
+                    await reply('Error al procesar el video desde la API.');
                 }
                 return;
             }
 
-            // === SOUNDCLOUD (.sc CON LÍMITE STRICTO DE 20MB) ===
-            if (command === 'sc') {
-                await react('🫰');
-                if (!q) return reply('Ingresa la busqueda o link de SoundCloud.\nEjemplo: .sc phonk');
-                try {
-                    await reply('Buscando en SoundCloud...');
-
-                    const querySearch = q.startsWith('http') ? q : `scsearch1:${q}`;
-                    const jsonCmd = `yt-dlp -j --skip-download "${querySearch}"`;
-                    const { stdout } = await execAsync(jsonCmd);
-                    const info = JSON.parse(stdout.trim().split('\n')[0]);
-
-                    const title = info.title || 'Desconocido';
-                    const uploader = info.uploader || info.channel || 'Desconocido';
-                    const duration = formatDuration(info.duration);
-                    const views = info.view_count ? info.view_count.toLocaleString() : 'No disponible';
-                    const likes = info.like_count ? info.like_count.toLocaleString() : 'No disponible';
-                    const uploadDate = info.upload_date ? `${info.upload_date.slice(6,8)}/${info.upload_date.slice(4,6)}/${info.upload_date.slice(0,4)}` : 'Desconocido';
-                    const trackUrl = info.webpage_url || info.url;
-                    const thumbUrl = info.thumbnail;
-
-                    if (info.filesize || info.filesize_approx) {
-                        const estimatedSize = info.filesize || info.filesize_approx;
-                        if (estimatedSize > MAX_AUDIO_BYTES) {
-                            return reply(`El audio de SoundCloud supera el limite de 20MB (${(estimatedSize / (1024*1024)).toFixed(1)}MB). Cancelado.`);
-                        }
-                    }
-
-                    const infoText = `Informacion de SoundCloud:\n\n` +
-                        `• Titulo: ${title}\n` +
-                        `• Artista: ${uploader}\n` +
-                        `• Duracion: ${duration}\n` +
-                        `• Reproducciones: ${views}\n` +
-                        `• Likes: ${likes}\n` +
-                        `• Lanzamiento: ${uploadDate}\n` +
-                        `• Link: ${trackUrl}`;
-
-                    const outputAudio = path.join(process.cwd(), `sc_${Date.now()}.mp3`);
-                    await execAsync(`yt-dlp --concurrent-fragments 4 -x --audio-format mp3 -o "${outputAudio}" "${trackUrl}"`);
-
-                    const fileStats = await stat(outputAudio).catch(() => null);
-                    if (fileStats && fileStats.size > MAX_AUDIO_BYTES) {
-                        await unlink(outputAudio).catch(() => {});
-                        return reply(`El audio descargado supera los 20MB (${(fileStats.size / (1024*1024)).toFixed(1)}MB). Cancelado.`);
-                    }
-
-                    if (thumbUrl) {
-                        await sock.sendMessage(sender, {
-                            image: { url: thumbUrl },
-                            caption: infoText
-                        }, { quoted: m });
-                    } else {
-                        await reply(infoText);
-                    }
-
-                    await sock.sendMessage(sender, { audio: { url: outputAudio }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
-                    await unlink(outputAudio).catch(() => {});
-                } catch (err) {
-                    console.error('Error en .sc:', err);
-                    await reply('Error al obtener el archivo de SoundCloud.');
-                }
-                return;
-            }
-
-            // === TIKTOK (.tt SIN LÍMITES) ===
+            // === TIKTOK (.tt CON API) ===
             if (command === 'tt') {
                 await react('🫰');
-                if (!q || !q.startsWith('http')) {
-                    return reply('Por favor ingresa un enlace valido de TikTok.\nEjemplo: .tt https://vm.tiktok.com/...');
-                }
+                if (!q || !q.startsWith('http')) return reply('Ingresa un enlace valido de TikTok.');
                 try {
-                    await reply('Descargando video de TikTok...');
-                    const outputVideo = path.join(process.cwd(), `tt_${Date.now()}.mp4`);
-                    await execAsync(`yt-dlp --concurrent-fragments 4 -f b -o "${outputVideo}" "${q}"`);
-                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Video de TikTok descargado' }, { quoted: m });
-                    await unlink(outputVideo).catch(() => {});
+                    await reply('Descargando de TikTok via API...');
+                    const res = await fetch(`${API_BASE}/api/tiktok?url=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+
+                    const videoUrl = data.url || data.result?.url || data.download || data.result;
+                    if (!videoUrl) return reply('No se pudo obtener el video de TikTok.');
+
+                    await sock.sendMessage(sender, { video: { url: videoUrl }, caption: 'TikTok descargado' }, { quoted: m });
                 } catch (err) {
-                    console.error('Error en .tt:', err);
-                    await reply('Error al descargar el video de TikTok.');
+                    console.error('Error en .tt con API:', err);
+                    await reply('Error al consultar TikTok en la API.');
                 }
                 return;
             }
 
-            // === INSTAGRAM (.ig SIN LÍMITES) ===
+            // === INSTAGRAM (.ig CON API) ===
             if (command === 'ig') {
                 await react('🫰');
-                if (!q) return reply('Ingresa el enlace de Instagram.\nEjemplo: .ig https://www.instagram.com/...');
+                if (!q || !q.startsWith('http')) return reply('Ingresa el enlace de Instagram.');
                 try {
-                    await reply('Descargando contenido de Instagram...');
-                    const outputVideo = path.join(process.cwd(), `ig_${Date.now()}.mp4`);
-                    await execAsync(`yt-dlp --concurrent-fragments 4 -f b -o "${outputVideo}" "${q}"`);
-                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Contenido de Instagram descargado' }, { quoted: m });
-                    await unlink(outputVideo).catch(() => {});
+                    await reply('Descargando de Instagram via API...');
+                    const res = await fetch(`${API_BASE}/api/ig?url=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+
+                    const videoUrl = data.url || data.result?.url || data.download || data.result;
+                    if (!videoUrl) return reply('No se pudo obtener el contenido de Instagram.');
+
+                    await sock.sendMessage(sender, { video: { url: videoUrl }, caption: 'Instagram descargado' }, { quoted: m });
                 } catch (err) {
-                    console.error('Error en .ig:', err);
-                    await reply('Error al descargar de Instagram.');
+                    console.error('Error en .ig con API:', err);
+                    await reply('Error al consultar Instagram en la API.');
                 }
                 return;
             }
 
-            // === FACEBOOK (.fb SIN LÍMITES) ===
+            // === FACEBOOK (.fb CON API) ===
             if (command === 'fb') {
                 await react('🫰');
-                if (!q) return reply('Ingresa el enlace de Facebook.\nEjemplo: .fb https://www.facebook.com/...');
+                if (!q || !q.startsWith('http')) return reply('Ingresa el enlace de Facebook.');
                 try {
-                    await reply('Descargando video de Facebook...');
-                    const outputVideo = path.join(process.cwd(), `fb_${Date.now()}.mp4`);
-                    await execAsync(`yt-dlp --concurrent-fragments 4 -f b -o "${outputVideo}" "${q}"`);
-                    await sock.sendMessage(sender, { video: { url: outputVideo }, caption: 'Video de Facebook descargado' }, { quoted: m });
-                    await unlink(outputVideo).catch(() => {});
+                    await reply('Descargando de Facebook via API...');
+                    const res = await fetch(`${API_BASE}/api/fb?url=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+
+                    const videoUrl = data.url || data.result?.url || data.download || data.result;
+                    if (!videoUrl) return reply('No se pudo obtener el video de Facebook.');
+
+                    await sock.sendMessage(sender, { video: { url: videoUrl }, caption: 'Facebook descargado' }, { quoted: m });
                 } catch (err) {
-                    console.error('Error en .fb:', err);
-                    await reply('Error al descargar de Facebook.');
+                    console.error('Error en .fb con API:', err);
+                    await reply('Error al consultar Facebook en la API.');
                 }
                 return;
             }
