@@ -354,7 +354,7 @@ async function startBot() {
                 return;
             }
 
-                                    // === DESCARGAS YOUTUBE (.play / .video - RESPUESTA DIRECTA DE DIAGNÓSTICO) ===
+                                                // === DESCARGAS YOUTUBE (.play / .video - STREAMING DIRECTO API JINN) ===
             if (command === 'play' || command === 'video') {
                 await react('🫰');
                 if (!q) return reply('Escribe el nombre o link de YouTube.');
@@ -365,44 +365,30 @@ async function startBot() {
                     const data = await apiRes.json();
 
                     const item = Array.isArray(data) ? data[0] : (data.results?.[0] || data.data?.[0] || data.result?.[0] || data);
+                    if (!item || !item.url) return reply('❌ No se encontraron resultados.');
 
-                    if (!item) {
-                        return reply(`❌ No se encontraron resultados. La API respondió: ${JSON.stringify(data).slice(0, 300)}`);
-                    }
+                    const title = item.title || 'Audio de YouTube';
+                    const thumbnail = item.thumbnail || item.image || 'https://i.imgur.com/3ZQ6316.jpeg';
 
-                    const downloadUrl = item.downloadUrl || item.download || item.url || item.link || item.audio || item.video || item.result || item.dl || item.file;
-                    
-                    if (!downloadUrl) {
-                        const keys = Object.keys(item).join(', ');
-                        return reply(`❌ La API no envió una URL válida de descarga. Propiedades recibidas: [${keys}]`);
-                    }
+                    const mp3Url = `https://esdeath-api.onrender.com/api/youtube/mp3?url=${encodeURIComponent(item.url)}`;
 
-                    const typeMedia = command === 'play' ? 'audio' : 'video';
-                    const title = item.title || item.name || 'Canción de YouTube';
-                    const author = item.author?.name || item.author || item.channel || 'YouTube Content';
-                    const duration = item.duration || item.timestamp || item.ago || 'N/A';
-                    const views = item.views || item.viewCount || 'N/A';
-                    const likes = item.likes || 'N/A';
-                    const thumbnail = item.thumbnail || item.image || item.thumb || 'https://i.imgur.com/3ZQ6316.jpeg';
+                    await sock.sendMessage(sender, { 
+                        image: { url: thumbnail }, 
+                        caption: `🎵 *${title}* \n⏳ Enviando streaming en vivo...` 
+                    }, { quoted: m });
 
-                    const infoCaption = `🎵 *INFORMACIÓN DE LA CANCIÓN*
-📌 *Título:* ${title}
-👤 *Canal/Creador:* ${author}
-⏱️ *Duración:* ${duration}
-👁️ *Vistas:* ${views}
-👍 *Likes:* ${likes}
-🔗 *Link:* ${item.url || item.link || q}`;
-
-                    try {
-                        await sock.sendMessage(sender, { image: { url: thumbnail }, caption: infoCaption }, { quoted: m });
-                    } catch {
-                        await reply(infoCaption);
-                    }
-
-                    if (typeMedia === 'audio') {
-                        await sock.sendMessage(sender, { audio: { url: downloadUrl }, mimetype: 'audio/mp4', ptt: false }, { quoted: m });
+                    if (command === 'play') {
+                        await sock.sendMessage(sender, { 
+                            audio: { url: mp3Url }, 
+                            mimetype: 'audio/mpeg', 
+                            ptt: false 
+                        }, { quoted: m });
                     } else {
-                        await sock.sendMessage(sender, { video: { url: downloadUrl }, caption: `*${title}*` }, { quoted: m });
+                        const videoUrl = `https://esdeath-api.onrender.com/api/youtube/mp4?url=${encodeURIComponent(item.url)}`;
+                        await sock.sendMessage(sender, { 
+                            video: { url: videoUrl }, 
+                            caption: `*${title}*` 
+                        }, { quoted: m });
                     }
                 } catch (err) {
                     await reply(`❌ Error procesando solicitud: ${err.message}`);
